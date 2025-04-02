@@ -21,6 +21,11 @@ import matplotlib.pyplot as plt
 
 #     return OLRBout
 
+def silentfor(au_stream, sec=0):
+    if au_stream.silence_duration >=sec:
+        return True
+    else:
+        return False
 
 # def silentfor(AVInput, sec=0):
 #     global initA
@@ -69,6 +74,8 @@ if __name__=="__main__":
     speech_data=[]
     for i in range(100):
         print(rec1.total_silence_duration, rec1.silence_duration, rec1.speaking_duration)
+        if silentfor(rec1, 1.0):
+            print("Take turn")
         total_silence_data.append(rec1.total_silence_duration)
         silence_data.append(rec1.silence_duration)
         speech_data.append(rec1.speaking_duration)

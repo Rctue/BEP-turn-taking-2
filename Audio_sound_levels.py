@@ -82,14 +82,17 @@ class AudioRecorder:
     def calibrate(self):
         done = False
         while not done:
-            input("Record 3s silence uisng {}. Press enter when ready".format(self.device['name']))
+            input("Record 3s silence using {}. Press enter when ready".format(self.device['name']))
             self.start_recording()
             time.sleep(3)
             self.stop_recording()
             silence = np.median(self.rms_data)
+            if silence <0.1:
+                silence = 0.1 #lower limit in case of noise cancelation returns 0.0
+                
             print("Median rms value of silence is " + str(silence))
             
-            input("Record 3s of speech uisng {}. Press enter when ready".format(self.device['name']))
+            input("Record 3s of speech using {}. Press enter when ready".format(self.device['name']))
             self.start_recording()
             time.sleep(3)
             self.stop_recording()

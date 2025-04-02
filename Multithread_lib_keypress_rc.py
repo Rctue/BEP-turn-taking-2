@@ -14,7 +14,9 @@ Numpad +         =   set selected option as positive (preferred choice)
 Numpad -         =   set selected option as negative (eliminate choice)
 """
 
-from multiprocessing import Process, Queue
+#from multiprocessing import Process, Queue
+from threading import Thread
+from queue import Queue
 
 KeyPress = ''
 offset_pitch=0.0
@@ -24,7 +26,8 @@ current_roll = 0.0
 current_yaw = 0.0
 
 pKeyPress = None
-iKey = None
+cKey = gk.Key_Stroke()
+qKey = Queue()
 
 def GetKey():
     global KeyPress
@@ -57,27 +60,49 @@ def GetKey():
     print(KeyPress, offset_pitch, offset_yaw)
     return KeyPress
 
-def CreateProcesses():
-    global pKeyPress, iKey
+def RunGetKey(cKey, qKey):
+    done = False
+    while not done:
+        if cKey.kbhit():
+            c = cKey.getch()
+            qKey.put(c)
+            print('you pressed: ' + c + " , " + str(ord(c)))
+            if c == 'q':
+                done = True
 
-    if pKeyPress == None:
-        iKey = gk.Key_Stroke() 
-        pKeyPress = Process(target = iKey.get_key, args=())
+            
+
+    
+    
+    
+def CreateProcesses():
+    global pKeyPress, cKey, qKey
+    if pKeyPress == None:      
+        pKeyPress = Thread(target = RunGetKey, args=(cKey, qKey))
         pKeyPress.start()
     else:
         print('Keyboard process already running.')
 
 def StopProcesses():
-    global pKeyPress, iKey
+    global pKeyPress, cKey
 
     if pKeyPress !=None:
         pKeyPress.join()
-        pKeyPress.close()
         pKeyPress = None
-        del iKey
+        del cKey
 
     
 if __name__=="__main__":
     CreateProcesses()
     time.sleep(10)
+    done = False
+    while not done:
+        if not qKey.empty():
+            c = qKey.get()
+            qKey.task_done()
+            print("Got "+ c + " from queue.")
+        else:
+            if c == 'q':
+                qKey.join()
+                done = True
     StopProcesses()
