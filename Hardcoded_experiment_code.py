@@ -26,11 +26,11 @@ def log_newstate_pressedButton(IDP1, IDP2, new_state, pressedButton):
     ct = datetime.now()
     file_name = "result_"+str(IDP1)+'_'+str(IDP2)+".txt"
     f = open(file_name,'a')
-    f.write(str(new_state) + '\t' + str(pressedButton) + '\t' + str(ct) + '\t' + str(head_position_left) + '\t'  +'\n')
+    f.write(str(new_state) + '\t' + str(pressedButton) + '\t' + str(ct) + '\t' + str(head_position) + '\t'  +'\n')
     f.close()
 
 def get_headpose():
-    current_date = datetime.now().strftime("%Y-%m-%d_%H:%M")
+    current_date = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     filename = f"headposedata_{current_date}.csv"
 
     with open(filename, mode="w", newline="") as file:
@@ -41,9 +41,9 @@ def get_headpose():
     print(f"Data saved to {filename}")
 
 def add_headposition():
-    if head_position_left == True:
+    if head_position == "left":
         direction = "l"
-    elif head_position_left == False:
+    elif head_position == "right":
         direction = "r"
     daytime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     add_pose = {
@@ -102,6 +102,8 @@ def main():
 
     #Initialize headpose log:
     global log_headpose
+    global head_position
+            
     log_headpose =[]
 
     # When the states need to be reset, each time that a new state is entered, this StateManager class can fix this issue
@@ -129,15 +131,15 @@ def main():
             #Ensure that it will start with the first utterance
             current_state = 0
             # Ensure that it knows that it is neither facing participant1 nor participant2
-            global head_position_left
-            head_position_left = False
-            head_moved_left = False
             OTHERNAME = None
             dialogstage = -1
 
 
             # Here we will start the correct topic
             misty.move_head(-20, 0, 0, 90)
+            head_position = "middle"
+            head_moved = None
+            
             if (topic == "h"):
                 introduction = ["Hi there. For this conversation the main goal is to figure out what a holiday should be like if you "+
                 "have to travel and spend the entire vacation together. "+
@@ -180,6 +182,7 @@ def main():
             print("Here the robot will know it's emotional_condition and show the emotional_condition.")
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
             misty.move_head(-20, 0, 0, 90)
+            head_position = "middle"            
             new_state = 2
 
         elif (new_state == 2):
@@ -193,15 +196,16 @@ def main():
                 new_state = 3
             elif pressedButton == "l":
                 print("Button 'l' was pressed.")
-                head_position_left = True
+                head_position = "left"
                 new_state = 4
             elif pressedButton == "r":
-                head_position_left= False
+                head_position = "right"
                 new_state = 4
 
-        elif (new_state == 3):
+        elif (new_state == 3): #no speech detected so robot urges speakers 
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
             misty.move_head(-20, 0, 0, 90)
+            head_position = "middle"
             breaksilence = ["So who has any ideas?",
                 "So what do you both think?",
                 "Who of you can say something about it?",
@@ -215,21 +219,23 @@ def main():
             # Here the robot will turn the head towards the active speaker, whom has been speaking for over 4 seconds.
             if dialogstage == -1:
                 misty.move_head(-20, 0, 0, 90)
+                head_postion = "middle"
                 new_state = 5
-            elif head_position_left:
+            elif head_position == "left":
                 misty.move_head(-20, 0, -54, 90)
-                head_moved_left = True
+                head_moved = "left"
                 add_headposition()
                 print("Participant 1 seemed to be talking, so I will turn my head towards them.")
                 new_state = 5
-            elif not head_position_left:
+            elif head_position == "right":
                 misty.move_head(-20, 0, 54, 90)
                 add_headposition()
-                head_moved_left = False
+                head_moved = "right"
                 print("Participant 2 seemed to be talking, so I have turned my head towards them.")
                 new_state = 5
             else: 
-                misty.move_head(0, 0, 0, 0)
+                misty.move_head(-20, 0, 0, 90)
+                head_postion = "middle"
                 new_state = 5
 
         elif (new_state == 5):
@@ -238,11 +244,13 @@ def main():
             log_newstate_pressedButton(IDP1, IDP2, new_state, pressedButton)
             if (pressedButton == "c"):
                     new_state = 6
-            elif (pressedButton == "d"):
-                if head_position_left:
-                    head_position_left = False
+            elif (pressedButton == "d"): #flip head position to other speaker
+                if head_position == "left":
+                    head_position = "right"
+                elif head_position == "right":
+                    head_position = "left"
                 else:
-                    head_position_left = True
+                    pass #don't know what to do for other head positions
                 new_state = 4
             elif (pressedButton == "t"):
                 new_state = 8
@@ -421,13 +429,13 @@ def main():
             print ("Type 'd' to direct a turn-take, type 's' to switch the turn-take.")
             pressedButton = msvcrt.getch().decode('ASCII')
             log_newstate_pressedButton(IDP1, IDP2, new_state, pressedButton)
-            if head_moved_left:
+            if head_moved == "left":
                 CURRENTNAME = NameParticipant1
                 OTHERNAME = NameParticipant2
                 log_data.experiment_data['left_pp'] = IDP1
                 log_data.experiment_data['right_pp'] = IDP2
                 
-            else:
+            elif head_moved == "right":
                 CURRENTNAME = NameParticipant2
                 OTHERNAME = NameParticipant1
                 log_data.experiment_data['left_pp'] = IDP2
@@ -436,26 +444,28 @@ def main():
             if (emotional_condition == "h"):
                     misty.display_image(fileName="e_Joy.jpg") # It shows the image of the 'happy' eyes
                     if gestures == "y":
-                        if head_position_left:
+                        if head_position == "left":
                             misty.move_head(-30, 40, -54, 90)
-                        else:
+                        elif head_position == "right":
                             misty.move_head(-30, 40, 54, 90)
+                        #else:
+                        #   pass #maybe add middle head position?
                     else:
-                        if head_position_left:
+                        if head_position == "left":
                             misty.move_head(-20, 0, -54, 90)
-                        else:
+                        elif head_position == "right":
                             misty.move_head(-20, 0, 54, 90)
             elif (emotional_condition == "s"):
                     misty.display_image(fileName="e_Sadness.jpg") # It shows the image of the 'sad' eyes
                     if gestures == "y":
-                        if head_position_left:
+                        if head_position == "left":
                             misty.move_head(10, 40, -54, 90)
-                        else:
+                        elif head_position == "right":
                             misty.move_head(10, 40, 54, 90)
                     else:
-                        if head_position_left:
+                        if head_position == "left":
                             misty.move_head(-20, 0, -54, 90)
-                        else:
+                        elif head_position == "right":
                             misty.move_head(-20, 0, 54, 90)
             if (pressedButton == 'd'):
                 direct_turntake = ["Why do you think that?",
@@ -487,16 +497,8 @@ def main():
             new_state = 2
 
         elif(new_state == 9):
-            value = 0
-            val = int(input("Give the input value (1-4): "))
-            if val ==1:
-                value = 0
-            elif val == 2:
-                value = 1
-            elif val == 3:
-                value = 2
-            elif val == 4:
-                value = 3
+            val = input("Give the input value (1-4): ")
+            value = int(val) -1
 
             if (topic == 'h'):
                 if dialogstage == 1:
