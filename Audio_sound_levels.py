@@ -43,7 +43,8 @@ class AudioRecorder:
         self.stream = None
 
         self.thread = None
-        self.speech_threshold = 0.20  # Adjust this according to what the threshold seems to be for speaking
+        self.speech_threshold = 2.0  # Adjust this according to what the threshold seems to be for speaking
+        self.silence_threshold = 0.20  # Adjust this according to what the threshold seems to be for speaking
         #self.silence_buffer_size  = 10 # length of silence buffer
         
         self.silence_duration = 0.0
@@ -87,8 +88,10 @@ class AudioRecorder:
             time.sleep(3)
             self.stop_recording()
             silence = np.median(self.rms_data)
+            silence_SD = np.std(self.rms_data)
             if silence <0.1:
                 silence = 0.1 #lower limit in case of noise cancelation returns 0.0
+            self.silence_threshold = silence
                 
             print("Median rms value of silence is " + str(silence))
             
@@ -97,13 +100,14 @@ class AudioRecorder:
             time.sleep(3)
             self.stop_recording()
             speech = np.max(self.rms_data)
+            speech_SD = np.std(self.rms_data)
             print("Max rms value of speech is " + str(speech) + "Median rms value of silence is " + str(silence))
             
             if speech < silence*3: # 2 would mean that max speech level is equal to median silence level, so better 3
                 print("Speech is not loud enough.")
             else:
-                self.speech_threshold = silence*2
-                print("Speech is loud enough. Keeping new threshold {}".format(self.speech_threshold))
+                self.speech_threshold = np.max([self.silence_threshold,speech - 3*speech_SD])
+                print("Speech is loud enough. Keeping new threshold {} ± {}".format(self.speech_threshold, speech_SD))
                 
             
             res = input("Do you want to try again? (y/n)")
@@ -196,7 +200,7 @@ class AudioRecorder:
                 self.total_speaking_duration +=delta_t
                 self.speaking_duration += delta_t
                 self.silence_duration =0
-            else:
+            elif rms_value < self.silence_threshold:
                 self.is_above_threshold = False
                 self.total_silence_duration +=delta_t
                 self.silence_duration +=delta_t
