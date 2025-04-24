@@ -128,6 +128,8 @@ class AudioRecorder:
         self.speaking_duration = 0.0
         self.silence_duration = 0.0
         self.total_speaking_duration = 0.0
+        self.crosstalk_duration = 0.0
+        self.total_crosstalk_duration = 0.0
         self.total_silence_duration = 0.0
         self.start_speech_time = None
         self.start_silence_time = None
@@ -205,6 +207,11 @@ class AudioRecorder:
                 self.total_silence_duration +=delta_t
                 self.silence_duration +=delta_t
                 self.speaking_duration =0
+            else: #it must be cross talk?
+                self.is_above_threshold = False
+                self.total_crosstalk_duration +=delta_t
+                self.crosstalk_duration +=delta_t
+                self.silence_duration =0
                 
                 
             # #More elaborate time keeping but does not result in better data
