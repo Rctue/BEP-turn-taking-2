@@ -13,10 +13,11 @@ from datetime import datetime
 import AVData
 import json
 import csv
+import speech_detector
 
 #making headposition variables global so we can extract them in the eyecontact_duration code:
 
-robot_ip = "192.168.0.100"
+robot_ip = "192.168.0.101"
 misty = Misty(ip_address=robot_ip)
 log_data = AVData.AVData()
 log_data.init_robot(robot_ip)
@@ -127,6 +128,10 @@ def main():
             print("The human on the left side needs to have the audio1 input, otherwise the robot will look at the non-speaking person.")
             
             log_data.experiment_data = {'condition':emotional_condition, 'topic': topic, 'gestures': gestures.lower(), 'IDP1': IDP1, 'IDP2': IDP2}
+            
+            #setting up speech detection
+            print("Setting up speech detection...")
+            speech_detector.setup_speech_detection()
 
             #Ensure that it will start with the first utterance
             current_state = 0
@@ -172,7 +177,6 @@ def main():
                 new_state = 4
             else:
                 new_state = 0
-            
 
         elif (new_state == 1):
             if dialogstage >= 0:
@@ -186,21 +190,43 @@ def main():
             new_state = 2
 
         elif (new_state == 2):
-            print("Check for silence or sound.")
-            print("Type s if silence. Type l if left participant is speaking, type r if right participant is speaking")
-            pressedButton = msvcrt.getch().decode('ASCII')
-            print(pressedButton)
+            print("Checking for speech... (Press 'm' for manual detection, any other key for automatic)")
+            if msvcrt.kbhit():
+                key = msvcrt.getch().decode('ASCII')
+                if key.lower() == 'm':
+                    # Manual detection
+                    print("Manual detection mode")
+                    print("Type s if silence. Type l if left participant is speaking, type r if right participant is speaking")
+                    pressedButton = msvcrt.getch().decode('ASCII')
+                    print(f"Manually selected: {pressedButton}")
+                else:
+                    # Automatic detection
+                    print("Automatic detection mode")
+                    pressedButton = speech_detector.detect_speaker()
+                    print(f"Automatically detected: {pressedButton}")
+            else:
+                # Automatic detection if no key press
+                pressedButton = speech_detector.detect_speaker()
+                print(f"Automatically detected: {pressedButton}")
+            # Log the detection
             log_newstate_pressedButton(IDP1, IDP2, new_state, pressedButton)
+
+            # Process the detection
             if pressedButton == 's':
-                # If there is a silence, we will go to state 3
                 new_state = 3
             elif pressedButton == "l":
-                print("Button 'l' was pressed.")
+                print("Left participant speaking")
                 head_position = "left"
                 new_state = 4
             elif pressedButton == "r":
+                print("Right participant speaking")
                 head_position = "right"
                 new_state = 4
+            elif pressedButton == "b":
+                print("Both participants speaking")
+                head_position = "middle"
+                new_state = 4
+
 
         elif (new_state == 3): #no speech detected so robot urges speakers 
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
@@ -239,18 +265,19 @@ def main():
                 new_state = 5
 
         elif (new_state == 5):
-            print("Type 'c' if one person is talking too long, type 'd' if they have switched turns, type 't' for a turn-switch, type 'i' for info. Type 'v' to check the chosen verdict For the first it will just continue furhter.Type 'r' to repeat the question.")
+            print("Type 'c' if one person is talking too long, type 'd' if they have switched turns, type 't' for a turn-switch, type 'i' for info")
+            print("Type 'v' to check verdict, 'r' to repeat question, or 'a' for automatic detection")
             pressedButton = msvcrt.getch().decode('ASCII')
             log_newstate_pressedButton(IDP1, IDP2, new_state, pressedButton)
             if (pressedButton == "c"):
-                    new_state = 6
-            elif (pressedButton == "d"): #flip head position to other speaker
+                new_state = 6
+            elif (pressedButton == "d"):
                 if head_position == "left":
                     head_position = "right"
                 elif head_position == "right":
                     head_position = "left"
                 else:
-                    pass #don't know what to do for other head positions
+                    pass
                 new_state = 4
             elif (pressedButton == "t"):
                 new_state = 8
@@ -260,8 +287,36 @@ def main():
                 new_state = 10
             elif (pressedButton == 'r'):
                 new_state = 11
+            elif (pressedButton == 'a'): #automatic speaker detection 
+                print("Automatic detection activated")
+                detected = speech_detector.detect_speaker()
+                stats = speech_detector.get_speech_stats()
+                
+                if detected == 's':
+                    silence_duration = speech_detector.get_silence_duration()
+                    print(f"Silence detected. Duration: {silence_duration:.1f}s")
+
+                    if silence_duration > 3.0:
+                        new_state = 3
+                    else:
+                        new_state = 5 
+                elif detected == 'l' and head_position != "left":
+                    print("Left participant speaking")
+                    head_position = "left"
+                    new_state = 4
+                elif detected == 'r' and head_position != "right":
+                    print("Right participant speaking")
+                    head_position = "right"
+                    new_state = 4
+                elif detected == 'b':
+                    print("Both participants speaking")
+                    head_position = "middle"
+                    new_state = 4
+                else:
+                    new_state = 5
             else:
                 new_state = 5
+
 
         elif (new_state == 6):
             # The robot should pronounce a backchannel utterance
@@ -775,6 +830,7 @@ def main():
         else:
             get_eyecontact()
             get_headpose()
+            speech_detector.terminate()
             quit()
     
     
