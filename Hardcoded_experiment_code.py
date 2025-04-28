@@ -16,7 +16,7 @@ import csv
 
 #making headposition variables global so we can extract them in the eyecontact_duration code:
 
-robot_ip = "192.168.0.100"
+robot_ip = "192.168.0.101"
 misty = Misty(ip_address=robot_ip)
 log_data = AVData.AVData()
 log_data.init_robot(robot_ip)
@@ -217,11 +217,7 @@ def main():
 
         elif (new_state == 4):
             # Here the robot will turn the head towards the active speaker, whom has been speaking for over 4 seconds.
-            if dialogstage == -1:
-                misty.move_head(-20, 0, 0, 90)
-                head_postion = "middle"
-                new_state = 5
-            elif head_position == "left":
+            if head_position == "left":
                 misty.move_head(-20, 0, -54, 90)
                 head_moved = "left"
                 add_headposition()
