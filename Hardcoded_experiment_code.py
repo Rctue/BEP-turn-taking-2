@@ -17,7 +17,7 @@ import speech_detector
 
 #making headposition variables global so we can extract them in the eyecontact_duration code:
 
-robot_ip = "192.168.0.101"
+robot_ip = "192.168.0.100"
 misty = Misty(ip_address=robot_ip)
 log_data = AVData.AVData()
 log_data.init_robot(robot_ip)

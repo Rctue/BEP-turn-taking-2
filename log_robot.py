@@ -25,9 +25,9 @@ def register_events():
         # HeadRoll = event_filter("SensorId", "=", "ahr")
         # HeadYaw = event_filter("SensorId", "=", "ahy")
         
-        pitch = misty_robot.RegisterEvent("pitch", Events.ActuatorPosition, condition=[EventFilters.ActuatorPosition.HeadPitch], keep_alive=True, callback_function=log_headpose_reading, debounce=5)
-        roll = misty_robot.RegisterEvent("roll", Events.ActuatorPosition, condition=[EventFilters.ActuatorPosition.HeadRoll], keep_alive=True, callback_function=log_headpose_reading, debounce=5)
-        yaw = misty_robot.RegisterEvent("yaw", Events.ActuatorPosition, condition=[EventFilters.ActuatorPosition.HeadYaw], keep_alive=True, callback_function=log_headpose_reading, debounce=5)
+        pitch = misty_robot.register_event("pitch", Events.ActuatorPosition, condition=[EventFilters.ActuatorPosition.HeadPitch], keep_alive=True, callback_function=log_headpose_reading, debounce=5)
+        roll = misty_robot.register_event("roll", Events.ActuatorPosition, condition=[EventFilters.ActuatorPosition.HeadRoll], keep_alive=True, callback_function=log_headpose_reading, debounce=5)
+        yaw = misty_robot.register_event("yaw", Events.ActuatorPosition, condition=[EventFilters.ActuatorPosition.HeadYaw], keep_alive=True, callback_function=log_headpose_reading, debounce=5)
          
     except Exception as ex:
         print(ex)
@@ -57,7 +57,7 @@ def stop_logging():
     f.close()
     
     # Unregister from all events or the spawned threads won't get killed
-    misty_robot.UnregisterAllEvents()
+    misty_robot.unregister_all_events()
        
 if __name__ == "__main__":
     ROBOT_IP = "192.168.0.100"
