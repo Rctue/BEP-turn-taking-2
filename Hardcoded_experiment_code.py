@@ -823,6 +823,11 @@ def main():
             dialogstage -= 1
             new_state = 7
 
+        elif (new_state == 12):
+            misty.stop_speaking()
+            misty.stop_audio()
+            misty.stop()
+
         else:
             get_eyecontact()
             get_headpose()
