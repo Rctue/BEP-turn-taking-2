@@ -60,7 +60,8 @@ def detect_speaker(duration=1.0):
         right_recorder.start_recording()
         
         # Record for the specified duration
-        time.sleep(duration)
+        while left_recorder.silence_duration<5.0:
+            print(".")
         
         # Stop recordings
         left_recorder.stop_recording()

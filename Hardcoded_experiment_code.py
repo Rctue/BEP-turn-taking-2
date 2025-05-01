@@ -186,8 +186,18 @@ def main():
             print("Here the robot will know it's emotional_condition and show the emotional_condition.")
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
             misty.move_head(-20, 0, 0, 90)
-            head_position = "middle"            
-            new_state = 2
+            head_position = "middle"  
+            
+            
+            
+            if (log_data.rec1.silence_duration>4) and (log_data.rec2.silence_duration>4):
+                new_state = 2
+            else:
+                if log_data.rec1.speaking_duration>0.5 or log_data.rec2.speaking_duration>0.5:
+                    new_state = 3
+                else:
+                    new_state = 1
+                 # stay in this state
 
         elif (new_state == 2):
             print("Checking for speech... (Press 'm' for manual detection, any other key for automatic)")
