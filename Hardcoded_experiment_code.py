@@ -14,6 +14,7 @@ import AVData
 import json
 import csv
 import speech_detector
+import keyboard
 
 #making headposition variables global so we can extract them in the eyecontact_duration code:
 
@@ -187,55 +188,34 @@ def main():
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
             misty.move_head(-20, 0, 0, 90)
             head_position = "middle"  
-            
-            
-            
-            if (log_data.rec1.silence_duration>4) and (log_data.rec2.silence_duration>4):
-                new_state = 2
-            else:
-                if log_data.rec1.speaking_duration>0.5 or log_data.rec2.speaking_duration>0.5:
-                    new_state = 3
-                else:
-                    new_state = 1
-                 # stay in this state
+            new_state = 2
 
-        elif (new_state == 2):
-            print("Checking for speech... (Press 'm' for manual detection, any other key for automatic)")
-            if msvcrt.kbhit():
-                key = msvcrt.getch().decode('ASCII')
-                if key.lower() == 'm':
-                    # Manual detection
-                    print("Manual detection mode")
-                    print("Type s if silence. Type l if left participant is speaking, type r if right participant is speaking")
-                    pressedButton = msvcrt.getch().decode('ASCII')
-                    print(f"Manually selected: {pressedButton}")
-                else:
-                    # Automatic detection
-                    print("Automatic detection mode")
-                    pressedButton = speech_detector.detect_speaker()
-                    print(f"Automatically detected: {pressedButton}")
-            else:
-                # Automatic detection if no key press
-                pressedButton = speech_detector.detect_speaker()
-                print(f"Automatically detected: {pressedButton}")
-            # Log the detection
-            log_newstate_pressedButton(IDP1, IDP2, new_state, pressedButton)
+        elif new_state == 2:
+            print("Automatic detection activated. Press 'q' to stop and continue.")
+            while True:
+                if keyboard.is_pressed('q'):
+                    print("Automatic tracking stopped.")
+                    new_state = 5  # or the next appropriate state
+                    break
 
-            # Process the detection
-            if pressedButton == 's':
-                new_state = 3
-            elif pressedButton == "l":
-                print("Left participant speaking")
-                head_position = "left"
-                new_state = 4
-            elif pressedButton == "r":
-                print("Right participant speaking")
-                head_position = "right"
-                new_state = 4
-            elif pressedButton == "b":
-                print("Both participants speaking")
-                head_position = "middle"
-                new_state = 4
+                speaker = speech_detector.detect_speaker(duration=1.0)
+
+                if speaker == 'l':
+                    head_position = "left"
+                    misty.move_head(pitch=0, roll=0, yaw=20)
+                    print("Participant 1 seemed to be talking, so I will turn my head towards them.")
+                elif speaker == 'r':
+                    head_position = "right"
+                    misty.move_head(pitch=0, roll=0, yaw=-20)
+                    print("Participant 2 seemed to be talking, so I have turned my head towards them.")
+                elif speaker == 'b':
+                    head_position = "middle"
+                    misty.move_head(pitch=0, roll=0, yaw=0)
+                    print("Both speaking — head centered.")
+                else:
+                    print("Silence detected.")
+
+                time.sleep(0.2)
 
 
         elif (new_state == 3): #no speech detected so robot urges speakers 
