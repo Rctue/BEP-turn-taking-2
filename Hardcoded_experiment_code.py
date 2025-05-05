@@ -15,6 +15,7 @@ import json
 import csv
 import speech_detector
 import keyboard
+from video_brightness_controller import VideoEyeBrightnessController
 
 #making headposition variables global so we can extract them in the eyecontact_duration code:
 
@@ -120,6 +121,9 @@ def main():
             emotional_condition = input("Please give the emotional condition (n = neutral), (h = happy), (s = sad) : ")
             topic = input ("Please give the topic (h = holiday planner, d = dream house, t = time-travel): ")
             gestures = input("Please enter whether gestures are used in this experiment (y/n): ")
+
+            eye_condition = input("Please enter the eye transition style (d = direct, s = smooth): ")
+
             NameParticipant1 = input("Please give the name of Participant 1 (sitting on the left of Misty): ")
             global IDP1 
             IDP1 = input("What is the ID of participant 1 (sitting on the left of Misty): ")
@@ -128,8 +132,13 @@ def main():
             IDP2 = input("What is the ID of participant 2 (sitting on the right of Misty): ")
             print("The human on the left side needs to have the audio1 input, otherwise the robot will look at the non-speaking person.")
             
-            log_data.experiment_data = {'condition':emotional_condition, 'topic': topic, 'gestures': gestures.lower(), 'IDP1': IDP1, 'IDP2': IDP2}
+            log_data.experiment_data = {'condition':emotional_condition, 'topic': topic, 'gestures': gestures.lower(),'eye_condition': eye_condition.lower(), 'IDP1': IDP1, 'IDP2': IDP2}
             
+            # Initialize the eye brightness controller with the selected transition style
+            transition_style = VideoEyeBrightnessController.SMOOTH if eye_condition.lower() == "s" else VideoEyeBrightnessController.DIRECT
+            eye_controller = VideoEyeBrightnessController(misty, transition_style=transition_style)
+            print(f"Eye controller initialized with {transition_style} transitions")
+
             #setting up speech detection
             print("Setting up speech detection...")
             speech_detector.setup_speech_detection()
@@ -147,6 +156,8 @@ def main():
             head_moved = None
             
             if (topic == "h"):
+                #Set eyes to speaking mode (brightness 100%)
+                eye_controller.set_speaking_mode()
                 introduction = ["Hi there. For this conversation the main goal is to figure out what a holiday should be like if you "+
                 "have to travel and spend the entire vacation together. "+
                 "I am going to ask you some questions about what your ideal holiday is. "+
@@ -155,8 +166,12 @@ def main():
                 "Are you ready to begin?"]
                 intro = listtostr(introduction)
                 misty.speak(intro)
+                #Set eyes to listening mode (brightness 70%)
+                eye_controller.set_listening_mode()
                 new_state = 4
             elif (topic == "d"):
+                #Set eyes to speaking mode (brightness 100%)
+                eye_controller.set_speaking_mode()
                 introduction = ["Hello. For this conversation the main goal is to figure out what your dream house "+ 
                 "would be if you would live together. "+
                 "I am going to ask you some questions about what your dream house would look like. "+
@@ -165,8 +180,12 @@ def main():
                 "Are you ready to begin?"]
                 intro = listtostr(introduction)
                 misty.speak(intro)
+                #Set eyes to listening mode (brightness 70%)
+                eye_controller.set_listening_mode()
                 new_state = 4
             elif (topic == "t"):
+                #Set eyes to speaking mode (brightness 100%)
+                eye_controller.set_speaking_mode()
                 introduction = ["Hi there. For this conversation the main goal is to figure out what you would do "+
                 "if you had the chance to time travel together. "+
                 "I am going to ask you some questions about all the things you want to do in your "+
@@ -175,6 +194,8 @@ def main():
                 "Are you ready to begin?"]
                 intro = listtostr(introduction)
                 misty.speak(intro)
+                #Set eyes to listening mode (brightness 70%)
+                eye_controller.set_listening_mode()
                 new_state = 4
             else:
                 new_state = 0
@@ -185,7 +206,8 @@ def main():
                 time.sleep(random_time)
 
             print("Here the robot will know it's emotional_condition and show the emotional_condition.")
-            misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
+            #Set the eyes to listening mode
+            eye_controller.set_listening_mode()
             misty.move_head(-20, 0, 0, 90)
             head_position = "middle"  
             new_state = 2
@@ -222,6 +244,8 @@ def main():
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
             misty.move_head(-20, 0, 0, 90)
             head_position = "middle"
+            # Set speaking mode before robot starts talking
+            eye_controller.set_speaking_mode()
             breaksilence = ["So who has any ideas?",
                 "So what do you both think?",
                 "Who of you can say something about it?",
@@ -229,6 +253,8 @@ def main():
             chosen_breaksilence = random.randint(0, len(breaksilence) - 1)
             chosen_breaksilence_result = listtostr(breaksilence[chosen_breaksilence])
             misty.speak(chosen_breaksilence_result)
+            # Set eyes to listening mode
+            eye_controller.set_listening_mode()
             new_state = 2
 
         elif (new_state == 4):
@@ -306,12 +332,16 @@ def main():
 
         elif (new_state == 6):
             # The robot should pronounce a backchannel utterance
+            # Set speaking mode
+            eye_controller.set_speaking_mode()
             longturnindicator = ["So to come to a conclusion, what do you prefer?",
                      "So what are your favorite options?",
                      "So to make a decision, what do you both agree on?"]
             chosen_longturnindicator = random.randint(0, len(longturnindicator) - 1)
             chosen_longturnindicator_result = listtostr(longturnindicator[chosen_longturnindicator])
             misty.speak(chosen_longturnindicator_result)
+            # Set eyes to listening mode
+            eye_controller.set_listening_mode()
             new_state = 5
 
 
@@ -319,40 +349,26 @@ def main():
             if log_data.is_logging:
                 log_data.stop_logging_data()
             
+
+            # Set speaking mode before robot starts talking
+            eye_controller.set_speaking_mode()
             # After the robot has said something, it will go back to showing an emotion and start again with testing whether someone is speaking, etc.
             # Here the robot will take a turn and start talking, or asking a new question, etc. It should take the correct utterance.")
             current_state += 1
             dialogstage +=1
             random_time = random.randint(5, 10)
 
-            if (emotional_condition == "n"):
-                # Show neutral face all along and no gestures.
-                misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
-                misty.move_head(-20, 0, 0, 90)
-            elif (emotional_condition == "h"):
-                # Happy face during talking after a question or when a turn has been given. Specify the timing of the gestures
-                # Condition happy
-                misty.display_image(fileName="e_Joy.jpg") # It shows the image of the 'happy' eyes
-                if gestures == "y":
-                    misty.move_head(-30, 0, 0, 90)       
-                else:
-                    misty.move_head(-20, 0, 0, 90)
-            elif (emotional_condition == "s"):
-                # Condition sad
-                misty.display_image(fileName="e_Sadness.jpg") # It shows the image of the 'sad' eyes
-                if gestures == "y":
-                    misty.move_head(10, 0, 0 , 90)
-                else:
-                    misty.move_head(-20, 0, 0, 90)
             
             if dialogstage != 6:
                log_data.start_logging_data()
-            
+       
             # Now, the robot will start talking 
             if (topic=="h"):
                 if dialogstage == 0:
                     starting_holiday = listtostr(starting)
                     misty.speak(starting_holiday)
+                    # Set listening mode after speaking
+                    eye_controller.set_listening_mode()
                     new_state = 7
                 elif dialogstage == 1:
                     question1_holiday = listtostr(question1)
@@ -361,18 +377,23 @@ def main():
                 elif dialogstage == 2:
                     question2_holiday = listtostr(question2)
                     misty.speak(question2_holiday)
+                    # Set listening mode after speaking
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 3:
                     question3_holiday = listtostr(question3)
                     misty.speak(question3_holiday)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 4:
                     question4_holiday = listtostr(question4)
                     misty.speak(question4_holiday)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 5:
                     question5_holiday = listtostr(question5)
                     misty.speak(question5_holiday)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 6: 
                     ending = [["Well thats about it. With all the information combined, you have arranged yourselves a holiday for "]+[chosen_options[3]]+
@@ -380,31 +401,38 @@ def main():
                     ["Once arrived you will have a typical "]+[chosen_options[4]]+[" vacation "]+ ["Thanks for having participated in our dialogue, it would be nice if you start with filling in the questionnaire."]]
                     ending_holiday = listtostr(ending)
                     misty.speak(ending_holiday)
+                    eye_controller.set_listening_mode()
                     new_state = 12
             elif (topic=="d"):
                 if dialogstage == 0:
                     starting_dreamhouse = listtostr(starting_d)
                     misty.speak(starting_dreamhouse)
+                    eye_controller.set_listening_mode()
                     new_state = 7
                 elif dialogstage == 1:
                     question1_dreamhouse = listtostr(question1_d)
-                    misty.speak(question1_dreamhouse) 
+                    misty.speak(question1_dreamhouse)
+                    eye_controller.set_listening_mode() 
                     new_state = 1
                 elif dialogstage == 2:
                     question2_dreamhouse = listtostr(question2_d)
                     misty.speak(question2_dreamhouse)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 3:
                     question3_dreamhouse = listtostr(question3_d)
                     misty.speak(question3_dreamhouse)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 4:
                     question4_dreamhouse = listtostr(question4_d)
                     misty.speak(question4_dreamhouse)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 5:
                     question5_dreamhouse = listtostr(question5_d)
                     misty.speak(question5_dreamhouse)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 6:
                     ending_d = [["That was about it. With all the information combined, the dream house you have built is a "]+[chosen_options[1]]+ ["in "]+[chosen_options[0]]+["with "]+[chosen_options[2]]+
@@ -412,11 +440,13 @@ def main():
                     ["Thanks for having participated in our dialogue, it would be nice if you could fill in the questionnaire."]]
                     ending_dreamhouse = listtostr(ending_d)
                     misty.speak(ending_dreamhouse)
+                    eye_controller.set_listening_mode()
                     new_state = 12
             elif(topic=="t"):
                 if dialogstage == 0:
                     starting_timetravel = listtostr(starting_t)
                     misty.speak(starting_timetravel)
+                    eye_controller.set_listening_mode()
                     new_state = 7
                 elif dialogstage == 1:
                     question1_timetravel = listtostr(question1_t)
@@ -425,18 +455,22 @@ def main():
                 elif dialogstage == 2:
                     question2_timetravel = listtostr(question2_t)
                     misty.speak(question2_timetravel)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 3:
                     question3_timetravel = listtostr(question3_t)
                     misty.speak(question3_timetravel)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 4:
                     question4_timetravel = listtostr(question4_t)
                     misty.speak(question4_timetravel)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 5:
                     question5_timetravel = listtostr(question5_t)
                     misty.speak(question5_timetravel)
+                    eye_controller.set_listening_mode()
                     new_state = 1
                 elif dialogstage == 6:
                     ending_t= [["That was already it. With all the information combined, for your time travel trip "+
@@ -445,6 +479,7 @@ def main():
                     ["Thanks for having participated in our dialogue, can you start filling in the questionnaires?"]]
                     ending_time_travel = listtostr(ending_t)
                     misty.speak(ending_time_travel)
+                    eye_controller.set_listening_mode()
                     new_state = 12
             else: 
                 new_state = 0
@@ -509,6 +544,7 @@ def main():
                         elif head_position == "right":
                             misty.move_head(-20, 0, 54, 90)
             if (pressedButton == 'd'):
+                eye_controller.set_speaking_mode()
                 direct_turntake = ["Why do you think that?",
                    "Why do you see it that way?",
                    "Please elaborate a bit more.",
@@ -523,7 +559,9 @@ def main():
                 direct_turn_turntake_random = random.randint(0, len(direct_turntake) - 1)
                 chosen_direct_turntake_result = listtostr(direct_turntake[direct_turn_turntake_random])
                 misty.speak(chosen_direct_turntake_result)
+                eye_controller.set_listening_mode()
             elif (pressedButton == "s"):
+                eye_controller.set_speaking_mode()
                 switch_turntake = [["To what degree would this also be your opinion?"], # The prefix is essential to a switch turn-take utterance!
                    ["To what extent do you agree with "]+[CURRENTNAME]+["?"],
                    ["That is interesting, what about you?"],
@@ -535,9 +573,13 @@ def main():
                 switch_turn_turntake_random = random.randint(0, len(switch_turntake) - 1)
                 chosen_switch_turntake_result = listtostr(switch_turntake[switch_turn_turntake_random])
                 misty.speak(chosen_switch_turntake_result)
+                eye_controller.set_listening_mode()
             new_state = 2
 
         elif(new_state == 9):
+            # Set speaking mode before providing information
+            eye_controller.set_speaking_mode()
+
             val = input("Give the input value (1-4): ")
             value = int(val) -1
 
@@ -546,78 +588,93 @@ def main():
                     info_continent = info_holiday.get(continent[value])
                     info_continent_string = listtostr(info_continent)
                     misty.speak(info_continent_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 2:
                     info_travelperiod = info_holiday.get(travelperiod[value])
                     info_travelperiod_holiday = listtostr(info_travelperiod)
                     misty.speak(info_travelperiod_holiday)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 3:
                     info_accomodation = info_holiday.get(accomodation[value])
                     info_accomodation_string = listtostr(info_accomodation)
                     misty.speak(info_accomodation_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 4:
                     info_tripduration = info_holiday.get(tripduration[value])
                     info_tripduration_string = listtostr(info_tripduration)
                     misty.speak(info_tripduration_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 5:
                     info_holidaytype = info_holiday.get(holidaytype[value])
                     info_holidaytype_string = listtostr(info_holidaytype)
                     misty.speak(info_holidaytype_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
             if (topic == "d"):
                 if dialogstage == 1:
                     info_houselocation = info_dreamhouse.get(houselocation[value])
                     info_houselocation_string = listtostr(info_houselocation)
                     misty.speak(info_houselocation_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 2:
                     info_housetype = info_dreamhouse.get(housetype[value])
                     info_housetype_string = listtostr(info_housetype)
                     misty.speak(info_housetype_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 3:
                     info_housesize = info_dreamhouse.get(housesize[value])
                     info_housesize_string = listtostr(info_housesize)
                     misty.speak(info_housesize_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 4:
                     info_outside_space = info_dreamhouse.get(outside_space[value])
                     info_outside_space_string = listtostr(info_outside_space)
                     misty.speak(info_outside_space_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 5:
                     info_housestyle = info_dreamhouse.get(housestyle[value])
                     info_housestyle_string = listtostr(info_housestyle)
                     misty.speak(info_housestyle_string)
+                    eye_controller.set_listening_mode()
                     new_state= 2
             if (topic == "t"):
                 if dialogstage == 1:
                     info_timeperiod = info_timetravel.get(timeperiod[value])
                     info_timeperiod_string = listtostr(info_timeperiod)
                     misty.speak(info_timeperiod_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 2:
                     info_influencelevel = info_timetravel.get(influencelevel[value])
                     info_influencelevel_string = listtostr(info_influencelevel)
                     misty.speak(info_influencelevel_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 3:
                     info_travelcompany = info_timetravel.get(travelcompany[value])
                     info_travelcompany_string = listtostr(info_travelcompany)
                     misty.speak(info_travelcompany_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 4:
                     info_travelactivities = info_timetravel.get(travelactivities[value])
                     info_travelactivities_string = listtostr(info_travelactivities)
                     misty.speak(info_travelactivities_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
                 elif dialogstage == 5:
                     info_travelduration = info_timetravel.get(travelduration[value])
                     info_travelduration_string = listtostr(info_travelduration)
                     misty.speak(info_travelduration_string)
+                    eye_controller.set_listening_mode()
                     new_state = 2
     
 
@@ -776,7 +833,9 @@ def main():
                     print(chosen_options)
                     new_state = 5
 
+                eye_controller.set_speaking_mode()
                 misty.speak("Is it correct to conclude that your chosen option was" + chosen_options[-1] +"?")
+                eye_controller.set_listening_mode()
 
                 answer = input("Was it correct?")
                 input_chosen_options_correct = False
@@ -792,6 +851,9 @@ def main():
                         input_chosen_options_correct = True
                 else:
                     if (answer == "yes"):
+                        
+                        eye_controller.set_speaking_mode()
+
                         Nice =  [ ["Clearly "]+[chosen_options[-1]]+[" seems to be the best choice."],
                                     ["I am glad that you found mutual agreement, "]+[chosen_options[-1]]+[" is selected for now."],
                                     ["Well this is an easy choice, I will note it is going to be "]+[chosen_options[-1]]+['.'],
@@ -801,20 +863,28 @@ def main():
                         answer_random = random.randint(0, len(Nice) - 1)
                         chosen_answer_result = listtostr(Nice[answer_random])
                         misty.speak(chosen_answer_result)
+
+                        eye_controller.set_listening_mode()
+
                         new_state = 7
                     if (answer == "no"):
                         chosen_options.pop()
+                        eye_controller.set_speaking_mode()
                         misty.speak("Sorry, I made a mistake. Let's continue the conversation.")
+                        eye_controller.set_listening_mode()
                         new_state = 2
 
         elif (new_state == 11):
+            eye_controller.set_speaking_mode()
             misty.speak("I will repeat the question.")
+            eye_controller.set_listening_mode()
             current_state -= 1
             dialogstage -= 1
             new_state = 7
 
         elif (new_state == 12):
             misty.stop_speaking()
+            eye_controller.set_listening_mode()
             misty.stop_audio()
             misty.stop()
 
