@@ -192,32 +192,33 @@ def main():
 
         elif new_state == 2:
             print("Automatic detection activated. Press 'q' to stop and continue.")
+
             while True:
-                if keyboard.is_pressed('q'):
-                    print("Automatic tracking stopped.")
-                    new_state = 5  # or the next appropriate state
-                    break
+                if msvcrt.kbhit():
+                    key = msvcrt.getch().decode('ASCII')
+                    if key.lower() == 'q':
+                        print("You pressed 'q'. Ending auto-detection.")
+                        new_state = 5  # or whatever comes next
+                        break
 
                 speaker = speech_detector.detect_speaker(duration=1.0)
 
                 if speaker == 'l':
                     head_position = "left"
                     misty.move_head(pitch=0, roll=0, yaw=20)
-                    print("Participant 1 seemed to be talking, so I will turn my head towards them.")
+                    print("Participant 1 is speaking — turning head left.")
                 elif speaker == 'r':
                     head_position = "right"
                     misty.move_head(pitch=0, roll=0, yaw=-20)
-                    print("Participant 2 seemed to be talking, so I have turned my head towards them.")
+                    print("Participant 2 is speaking — turning head right.")
                 elif speaker == 'b':
                     head_position = "middle"
                     misty.move_head(pitch=0, roll=0, yaw=0)
-                    print("Both speaking — head centered.")
+                    print("Both speaking — centering head.")
                 else:
-                    print("Silence detected.")
+                    print("Silence — not moving head.")
 
                 time.sleep(0.2)
-
-
         elif (new_state == 3): #no speech detected so robot urges speakers 
             misty.display_image(fileName="e_DefaultContent.jpg") # It shows the image of the neutral face
             misty.move_head(-20, 0, 0, 90)
