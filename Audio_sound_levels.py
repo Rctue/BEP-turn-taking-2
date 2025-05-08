@@ -1,3 +1,4 @@
+#Audio_sound_levels.py
 import pyaudio
 import wave
 import csv
@@ -137,8 +138,8 @@ class AudioRecorder:
         self.stream = self.audio.open(input_device_index=self.input_device, format=self.FORMAT, channels=self.CHANNELS,
                                       rate=self.RATE, input=True,
                                       frames_per_buffer=self.CHUNK)
-
-        print("Recording from {} started...".format(self.device['name']))
+        if self.verbose:
+            print("Recording from {} started...".format(self.device['name']))
 
         # Start a new thread for the recording process
         self.thread = threading.Thread(target=self.record_audio)
@@ -156,8 +157,8 @@ class AudioRecorder:
         # Stop and close the stream
         self.stream.stop_stream()
         self.stream.close()
-
-        print("Recording stopped.")
+        if self.verbose:
+            print("Recording stopped.")
         self.wave_data = b''.join(self.frames)
         
     def save_data(self, output_filename="output.wav"):

@@ -1,3 +1,4 @@
+#AVData_new.py
 import sounddevice as sd
 import numpy as np
 import time
@@ -64,7 +65,45 @@ class AudioRecorder:
                     f"{rms:.9f}"
                 ])
 
-                
+# ---------------------------------------------------------------------------
+# Legacy‑compatibility shim — lets the state‑machine call AVData.AVData()
+# ---------------------------------------------------------------------------
+import csv, time
+
+class AVData:
+    """Minimal replacement for the old AVData logger used by Misty’s state‑machine.
+    All methods are no‑ops except that `stop()` writes a 2‑line CSV so the call
+    doesn’t fail. Flesh this out later if you want full RMS logging again."""
+    def __init__(self):
+        self.experiment_data = {}        # the state‑machine writes into this
+        self.rec_left   = None           # placeholders expected by set_thresholds()
+        self.rec_right  = None
+        self.thresh_left  = 0
+        self.thresh_right = 0
+        self._start_time = None
+        self.robot_ip = None
+
+    # called once in state_0_init()
+    def init_robot(self, ip):
+        self.robot_ip = ip
+
+    # called once in state_0_init()
+    def init_devices(self):
+        # The original version built AudioRecorder objects here.
+        # We leave them as None because speech_detector sets everything up later.
+        return True
+
+    # called once when the dialogue actually starts
+    def start(self):
+        self._start_time = time.time()
+
+    # called in state_12_end() with filename "audio_rms_log.csv"
+    def stop(self, filename):
+        with open(filename, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["start_unix", "stop_unix"])
+            writer.writerow([self._start_time, time.time()])
+             
                 
 ############################################################################################## to test
 if __name__ == "__main__":

@@ -3,6 +3,14 @@ from Audio_sound_levels import AudioRecorder, list_devices
 import time
 import numpy as np
 
+# ---------------------------------------------------------------------------
+# Legacy stub — the old state‑machine calls this once during start‑up.
+# Our current speech_detector calibrates its own thresholds, so we just ignore.
+# ---------------------------------------------------------------------------
+def set_thresholds(*args, **kwargs):
+    pass
+
+
 # Global variables to maintain state
 left_recorder = None
 right_recorder = None
@@ -154,3 +162,13 @@ def terminate():
         if right_recorder:
             right_recorder.terminate()
         initialized = False
+        
+
+def reset_timers():
+    """Reset zowel stilte- als spreek­duur terug naar 0."""
+    global left_recorder, right_recorder, initialized
+    if initialized:
+        left_recorder.silence_duration = 0
+        left_recorder.speaking_duration = 0
+        right_recorder.silence_duration = 0
+        right_recorder.speaking_duration = 0
