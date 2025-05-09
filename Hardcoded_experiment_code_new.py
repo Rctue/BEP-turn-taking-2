@@ -28,7 +28,7 @@ simulate = (
 if not simulate:
     try:
         from Misty_commands import Misty
-        # snelle bereikbaarheidstest
+        #quick accessibility test
         requests.get("http://192.168.0.100/api/device", timeout=2)
     except Exception as e:
         print("[WARN] Robot niet bereikbaar → schakel naar FakeMisty:", e)
@@ -55,7 +55,7 @@ from script_holiday_hardcoded     import *
 from script_dream_house_hardcoded import *
 from script_timetravel_hardcoded  import *
 
-# Optional Mediapipe face / head-pose tracking  ───────────────────────────────
+# Optional Mediapipe face / head-pose tracking  ######################
 ENABLE_FACE_TRACKING = False
 if ENABLE_FACE_TRACKING:
     # <<  use the file name that contains your Mediapipe code  >>
@@ -277,8 +277,8 @@ def state_2_track():
     global _start_time
 
     print("AUTOTRACK active — press M menu, Q next, or V verdict …")
-    speech_detector.reset_timers()
-
+    
+    
     while True:
         override = check_menu_keys()
         if override is not None:
@@ -329,7 +329,10 @@ def state_2_track():
                 misty.move_head(0, 0, -20)
             else:
                 misty.move_head(0, 0, 0)
+            
         add_head_dir()
+        
+    
 
         time.sleep(0.2)
 
@@ -362,7 +365,7 @@ def state_4_turn_head():
     return 5
 
 
-# 5 ─ Keep gaze; tests C/D/E
+# 5 ─ Keep gaze; tests C/D/E 
 def state_5_keep_gaze():
     global head_position
     global last_speaker
@@ -422,8 +425,8 @@ def state_5_keep_gaze():
 
     print(f"[DEBUG] same speaker={speaker}, silence={silence_duration:.2f}s, speak={speaking_duration:.2f}s")
 
-    if speaker in ('l', 'r', 'b') and speaking_duration > 4.0:
-        print("[AUTO] Same speaker (>4s) → backchannel.")
+    if speaker in ('l', 'r', 'b') and speaking_duration >= BC_SCHEDULE[BC_PTR]["delay"]:
+        print("[AUTO] Speaker active for required delay → backchannel.")
         return 6
 
     if speaker == 's' and silence_duration > 4.0:
@@ -436,17 +439,19 @@ def state_5_keep_gaze():
 
 # 6 ─ Back-channel utterance / nod / none  ──────────────────────────────
 def state_6_backchannel():
+    print("[BC] Entered state 6 (backchannel)")
     """Run the *next* trial from the within-subjects schedule."""
     global BC_PTR
     if BC_PTR >= len(BC_SCHEDULE):              # safety – recycle if needed
         BC_PTR = 0
     trial   = BC_SCHEDULE[BC_PTR];  BC_PTR += 1
     delay   = trial["delay"]                   # 2 s or 4 s
-    bc_type = trial["type"]                    # none | nod | saying
+    bc_type = trial["type"]      # none | nod | saying
 
+        
     # 1) wait the required delay
     time.sleep(delay)
-
+    
     # 2) perform the back-channel
     if bc_type == "none":
         bc_out = ""
@@ -508,11 +513,20 @@ def state_7_robot_talk():
         speech_detector.right_recorder.stop_recording()
         
         misty.speak(listtostr(seq[dialogstage]))
-        time.sleep(1.0)
+        with open(RMS_LOGFILE, "a", newline="") as f:
+            csv.writer(f).writerow([
+                datetime.now().isoformat(), 
+                int((datetime.now() - _start_time).total_seconds() * 1000),
+                 "", "", "", 
+                f"question: {listtostr(seq[dialogstage])}"
+            ])
+        time.sleep(3.0)
         
         speech_detector.reset_timers()
+        
         speech_detector.left_recorder.start_recording()
         speech_detector.right_recorder.start_recording()
+        log_data.start()
         return 13 if dialogstage == 0 else 1
 
     # 2) exact alle antwoorden verzameld? anders eerst verdict
@@ -543,6 +557,7 @@ def state_7_robot_talk():
     speech_detector.right_recorder.stop_recording()
     
     misty.speak(listtostr(closing))
+    time.sleep(3.0)
     
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
@@ -706,4 +721,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

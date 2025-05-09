@@ -39,13 +39,14 @@ class AudioRecorder:
 
         self.frames = []
         self.rms_data = []
+        self.rms_log = []
         self.wave_data = []
         self.is_recording = False
         self.stream = None
 
         self.thread = None
-        self.speech_threshold = 2.0  # Adjust this according to what the threshold seems to be for speaking
-        self.silence_threshold = 0.20  # Adjust this according to what the threshold seems to be for speaking
+        self.speech_threshold = 6.14  # Adjust this according to what the threshold seems to be for speaking
+        self.silence_threshold = 0.14  # Adjust this according to what the threshold seems to be for speaking
         #self.silence_buffer_size  = 10 # length of silence buffer
         
         self.silence_duration = 0.0
@@ -189,6 +190,7 @@ class AudioRecorder:
             # Calculate and display sound level (RMS)
             rms_value = self.calculate_rms(data)
             self.rms_data.append(rms_value)
+            self.rms_log.append((time.time(), rms_value))
             if self.verbose:
                 if rms_value > 0:
                     print(f"Sound Level (RMS): {rms_value:.2f} | {'*' * int(rms_value * 10)}")
@@ -241,7 +243,7 @@ class AudioRecorder:
 
         if self.verbose:
             print(f"Continuous speaking duration: {self.speaking_duration:.2f} seconds")
-            print(f"Total silence duration: {self.silence_duration:.2f} seconds")
+            print(f"Total silence duration: {self.total_silence_duration:.2f} seconds")
             
 
         return self.speaking_duration, self.silence_duration
@@ -298,3 +300,4 @@ if __name__ == "__main__":
 
     # Terminate PyAudio when done
     recorder.terminate()
+    

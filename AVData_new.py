@@ -12,6 +12,7 @@ class AudioRecorder:
         self.stream = None
         self.recording = False
         self.rms_data = []
+        self.rms_log = []
 
     def calibrate(self):
         print(f"Calibrating device {self.input_device}... (speak for a few seconds)")
@@ -42,6 +43,7 @@ class AudioRecorder:
             rms = float(np.sqrt(np.mean(indata**2)))
             timestamp = time.time()
             self.rms_data.append((timestamp, rms))
+            self.rms_log.append((timestamp, rms))
 
     def save_rms_data(self, filename):
         if not self.rms_data:
@@ -72,7 +74,7 @@ import csv, time
 
 class AVData:
     """Minimal replacement for the old AVData logger used by Misty’s state‑machine.
-    All methods are no‑ops except that `stop()` writes a 2‑line CSV so the call
+    All methods are no‑ops except that stop() writes a 2‑line CSV so the call
     doesn’t fail. Flesh this out later if you want full RMS logging again."""
     def __init__(self):
         self.experiment_data = {}        # the state‑machine writes into this
@@ -106,7 +108,7 @@ class AVData:
              
                 
 ############################################################################################## to test
-if __name__ == "__main__":
+if __name__ == "_main__":
     import sounddevice as sd
 
     # Toon beschikbare input devices
@@ -130,3 +132,4 @@ if __name__ == "__main__":
     # Sla op naar CSV
     rec.save_rms_data("test_rms_output.csv")
     print("CSV opgeslagen als test_rms_output.csv")
+    

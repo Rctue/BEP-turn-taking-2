@@ -23,7 +23,7 @@ from mediapipe.framework.formats import landmark_pb2
 
 # Create unique log file name
 log_file_name = f"log_facepose-{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-log_file_path = os.path.join(os.path.dirname(os.path.abspath(_file_)), log_file_name)
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_file_name)
 
 # Add explanation to top of log file (once at startup)
 with open(log_file_path, 'w', encoding='utf-8') as f:
@@ -168,7 +168,7 @@ def get_pitch_yaw():
     cv2.destroyWindow(im_name)
     return pitch, yaw
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     misty = Misty(ip_address="192.168.0.100")
     print("Main was started")
     try:

@@ -53,57 +53,47 @@ def setup_speech_detection():
         return False
 
 def detect_speaker(duration=1.0):
-    """Detect which participant is speaking
-    Returns: 'l' for left, 'r' for right, 's' for silence, 'b' for both
-    """
+    """Detect who is speaking based on last duration seconds of RMS values."""
     global left_recorder, right_recorder, initialized
-    
+
     if not initialized:
         print("Speech detection not initialized! Call setup_speech_detection() first.")
         return 's'
-    
+
     try:
-        # Start recordings
-        left_recorder.start_recording()
-        right_recorder.start_recording()
-        
-        # Record for the specified duration
-        time.sleep(duration)
-        
-        # Stop recordings
-        left_recorder.stop_recording()
-        right_recorder.stop_recording()
-        
-        # Calculate statistics for more robust detection
-        left_rms = np.array(left_recorder.rms_data)
-        right_rms = np.array(right_recorder.rms_data)
-        
-        # Use median and max values for more stable detection
-        left_max = np.max(left_rms) if len(left_rms) > 0 else 0
-        right_max = np.max(right_rms) if len(right_rms) > 0 else 0
-        
-        # Check if either participant is above speech threshold
+        # Tijdgrens
+        now = time.time()
+        cutoff = now - duration
+
+        # Verzamel RMS-logdata uit beide recorders
+        left_recent = [r for t, r in left_recorder.rms_log if t >= cutoff]
+        right_recent = [r for t, r in right_recorder.rms_log if t >= cutoff]
+
+        # Geen data?
+        if not left_recent and not right_recent:
+            return 's'
+
+        # Maxwaarden per kanaal
+        left_max = max(left_recent) if left_recent else 0
+        right_max = max(right_recent) if right_recent else 0
+
+        # Sprekers bepalen
         left_speaking = left_max > left_recorder.speech_threshold
         right_speaking = right_max > right_recorder.speech_threshold
-        
-        # Return appropriate code
+
         if left_speaking and right_speaking:
-            # If both are speaking, check who's louder
-            if left_max > right_max * 1.5:  # Left is significantly louder
-                return 'l'
-            elif right_max > left_max * 1.5:  # Right is significantly louder
-                return 'r'
-            else:
-                return 'b'  # Both speaking roughly equally
+            return 'b'
         elif left_speaking:
-            return 'l'  # Left speaking
+            return 'l'
         elif right_speaking:
-            return 'r'  # Right speaking
+            return 'r'
         else:
-            return 's'  # Silence
+            return 's'
+
     except Exception as e:
-        print(f"Error detecting speaker: {e}")
-        return 's'  # Default to silence on error
+        print(f"Error in detect_speaker: {e}")
+        return 's'
+
 
 def get_silence_duration():
     """Get the current silence duration in seconds"""
@@ -172,3 +162,29 @@ def reset_timers():
         left_recorder.speaking_duration = 0
         right_recorder.silence_duration = 0
         right_recorder.speaking_duration = 0
+        
+        
+        
+import time
+
+#def get_silence_duration(window=2.0):
+#    now = time.time()
+#    all_rms = left_recorder.rms_log + right_recorder.rms_log
+#    recent_rms = [r for t, r in all_rms if now - t <= window]
+#    speaking = [r for r in recent_rms if r > left_recorder.speech_threshold * 0.7]  # 0.7 = marge
+
+#   if not speaking:
+#        return window
+#    return 0.0
+
+
+
+#def get_speaking_duration(window=2.0):
+#    now = time.time()
+#    all_rms = left_recorder.rms_log + right_recorder.rms_log
+#    recent_rms = [r for t, r in all_rms if now - t <= window]
+#    speaking = [r for r in recent_rms if r > left_recorder.speech_threshold * 0.7]
+
+#    if not recent_rms:
+#        return 0.0
+#    return len(speaking) / len(recent_rms) * window
