@@ -5,20 +5,34 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ##############################################################################
-# ░░░ IMPORTS ░░░
+# IMPORTS 
 ##############################################################################
 
-# --------------------------------------------------------------------------
-#  Misty: echt of simulatie?
-#     • cmd-vlag  : python …py --simulate
-#     • env-var   : SIMULATE_MISTY=1
-#  Valt terug op FakeMisty als de echte robot niet bereikbaar is.
-# --------------------------------------------------------------------------
-import os, sys, argparse, requests
+
+import sys, argparse, requests
+import os
+os.environ['MEDIAPIPE_DISABLE_LOGGING'] = '1'
+
+import logging
+logging.getLogger().setLevel(logging.ERROR)
+
+import absl.logging
+absl.logging.set_verbosity(absl.logging.ERROR)
+absl.logging.set_stderrthreshold('fatal')
+
 
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument("--simulate", action="store_true")
 args, _ = parser.parse_known_args()
+
+
+#___________________________________________________________________________________
+#  Misty: real or simulated?
+#     • Command-line flag : python …py --simulate
+#     • Environment variable: SIMULATE_MISTY=1
+# If the real Misty robot cannot be reached, the program automatically falls back
+# to using the FakeMisty class from Amisty_stub.py as a simulation.
+#____________________________________________________________________________________
 
 simulate = (
     args.simulate
@@ -55,8 +69,9 @@ from script_holiday_hardcoded     import *
 from script_dream_house_hardcoded import *
 from script_timetravel_hardcoded  import *
 
-# Optional Mediapipe face / head-pose tracking  ######################
-ENABLE_FACE_TRACKING = False
+
+# Optional Mediapipe face / head-pose tracking __________________________________________________________
+ENABLE_FACE_TRACKING = False 
 if ENABLE_FACE_TRACKING:
     # <<  use the file name that contains your Mediapipe code  >>
     from mp_face_pose_detect_asr import get_pitch_yaw           # returns (pitch,yaw)
@@ -69,22 +84,26 @@ def check_menu_keys():
         k = msvcrt.getch().decode('ascii').lower()
         if k == 'm':
             print("→ Paused: operator menu.")
+            log_state_button(13, 'm')
             return 13
         if k == 'q':
             print("→ Next question.")
+            log_state_button(13, 'q')
             return 7
         if k == 'v':
             print("→ Jump to verdict.")
+            log_state_button(13, 'v')
             return 10
     return None
 
 
 ##############################################################################
-# ░░░ GLOBAL RUNTIME STATE ░░░
+# GLOBAL RUNTIME STATE 
 ##############################################################################
 robot_ip = "192.168.0.100"
 misty    = Misty(ip_address=robot_ip)
 last_speaker = None
+head_timer_start = None
 
 # A/V & RMS logging helper
 log_data = AVData.AVData()
@@ -97,13 +116,20 @@ RMS_LOGFILE = f"rms_log_{_dt.now():%Y%m%d_%H%M%S}.csv"
 _start_time = None
 import csv
 with open(RMS_LOGFILE, "w", newline="") as _f:
-    csv.writer(_f).writerow(["timestamp","ms_since_start","speaker","rms_left","rms_right"])
+    csv.writer(_f).writerow(["timestamp","ms_since_start","speaker","rms_left","rms_right","head_position","head_duration"])
+
+
+GAZE_LOGFILE = f"gaze_log_{_dt.now():%Y%m%d_%H%M%S}.csv"
+with open(GAZE_LOGFILE, "w", newline="") as f:
+    csv.writer(f).writerow(["timestamp", "head_position", "duration_s"])
+
 
 import speech_detector; speech_detector.set_thresholds(
         log_data.rec_left,  log_data.rec_right,
         log_data.thresh_left, log_data.thresh_right)
 
 head_position  = "middle"           # 'left' | 'right' | 'middle'
+face_direction = "middle"           #'left', 'right', or  middle' on basis of face
 log_headpose   = []                 # list of dicts -> CSV at the end
 chosen_options = []                 # filled in state 10
 dialogstage    = -1                 # question index (-1 = not started)
@@ -111,8 +137,8 @@ IDP1 = IDP2 = "";   NameP1 = NameP2 = ""
 topic = "";   emotional_condition = "";   gestures = "n"
 
 # ──────────────────────────────────────────────────────────
-# ░░░ BACK-CHANNEL FACTORS ░░░
-# (chosen once in state 0 – counterbalancing comes from your spreadsheet)
+# BACK-CHANNEL FACTORS 
+# (chosen once in state 0)
 BC_SAYINGS = ["uh-huh", "mmhm", "okay", "yeah"]
 
 # run-time schedule pointer (filled in state 0)
@@ -121,21 +147,37 @@ BC_PTR: int = 0
 
 BC_LOGFILE = f"bc_log_{datetime.now():%Y%m%d_%H%M%S}.csv"
 with open(BC_LOGFILE, "w", newline="") as f:
-    csv.writer(f).writerow(["timestamp", "eye_contact", "backchannel", "delay_s"])
+    csv.writer(f).writerow(["timestamp", "eye_contact", "backchannel", "delay_s", "head_position", "gaze_duration"])
 
 
-def log_backchannel(eye_contact: bool, bc: str, delay_s: int):
-    """Append a back-channel event to CSV."""
+
+def log_backchannel(eye_contact: bool, bc: str, delay_s: int, direction: str, duration: float):
+    if direction not in ("left", "right"):
+        return  # Logging only at active orientation
+
+    try:
+        pitch, yaw = sys.modules["tracking_model"].LAST_POSE
+    except KeyError:
+        pitch, yaw = (0.0, 0.0)  # fallback if face-tracking is false
+
+
     with open(BC_LOGFILE, "a", newline="") as f:
-        csv.writer(f).writerow(
-            [datetime.now().isoformat(timespec="seconds"),
-             "YES" if eye_contact else "NO",
-             bc, delay_s]
-        )
+        csv.writer(f).writerow([
+            datetime.now().isoformat(timespec="seconds"),
+            "YES" if eye_contact else "NO",
+            bc,
+            delay_s,
+            direction,
+            round(duration, 2),
+            round(pitch, 2),
+            round(yaw, 2)
+        ])
+
+
 
 
 ##############################################################################
-# ░░░ SMALL HELPERS ░░░
+# SMALL HELPERS 
 ##############################################################################
 def listtostr(obj):
     """Convert nested list to plain sentence string."""
@@ -162,20 +204,48 @@ def add_head_dir():
         "direction": d,
         "participant": IDP1 if d == "l" else IDP2 if d == "r" else "both"
     })
+  
+    
+def log_gaze_duration(position: str, duration: float):
+    with open(GAZE_LOGFILE, "a", newline="") as f:
+        csv.writer(f).writerow([
+            datetime.now().isoformat(timespec="seconds"),
+            position,
+            round(duration, 2)
+        ])
+
 
 
 ##############################################################################
-# ░░░ FACE-TRACKING THREAD ░░░
+# FACE-TRACKING THREAD 
 ##############################################################################
 def face_tracking_thread():
-    """Continuously run Mediapipe model and cache last pitch/yaw in tracking_model.LAST_POSE."""
+    global face_direction
     try:
         while True:
-            p, y = get_pitch_yaw()          # returns (pitch, yaw)
-            # store in module-level variable so state_6 can read it fast
-            sys.modules["tracking_model"].LAST_POSE = (p, y)
+            try:
+                is_playing = misty.get_audio_playing().json().get('result', False)
+            except:
+                is_playing = False
+
+            if is_playing:
+                time.sleep(0.5)
+                continue
+
+            pitch, yaw = get_pitch_yaw(misty)
+            sys.modules["tracking_model"].LAST_POSE = (pitch, yaw)
+
+            if yaw < -20:
+                face_direction = "left"
+            elif yaw > 20:
+                face_direction = "right"
+            else:
+                face_direction = "middle"
+
+            time.sleep(1.0)
     except Exception as e:
         print("Face-tracking stopped:", e)
+
 
 
 if ENABLE_FACE_TRACKING:
@@ -186,9 +256,9 @@ if ENABLE_FACE_TRACKING:
 
 
 ##############################################################################
-# ░░░ STATE-HANDLERS ░░░
+# STATE-HANDLERS 
 ##############################################################################
-# 0 ─ Experiment initialisation
+# 0 ─ Experiment initialisation___________________________________________________________________________________________________
 def state_0_init():
     global emotional_condition, topic, gestures
     global IDP1, IDP2, NameP1, NameP2
@@ -207,7 +277,7 @@ def state_0_init():
     speech_detector.setup_speech_detection()
 
     misty.move_head(-20, 0, 0, 90)         # neutral pose
-    log_data.start()          # ▶︎ begin RMS‐opname van de microfoon
+    log_data.start()          # begin RMS recording of the microphone
 
     #start RMS-timer
     global _start_time
@@ -234,47 +304,60 @@ def state_0_init():
     speech_detector.right_recorder.start_recording()
     
 
-    # Counter-balancing factors (here simple RNG demo)
-    #global BACKCHANNEL_TYPE, BACKCHANNEL_DELAY
+#___________________________________________________________________________________
+# Counterbalancing factors (backchannel schedule generation)
+
+# A within-subjects schedule is used with 12 trials, where each trial 
+# specifies a backchannel delay (2 or 4 seconds) and a backchannel type 
+# ('none', 'nod', or 'saying').
+
+# Instead of fixed blocks, both delays and types are randomly shuffled 
+# and paired into trial entries. This ensures a varied and unpredictable 
+# order of delay–type combinations across trials, without a fixed pattern.
+
+# Each participant experiences 12 backchannel moments with randomized timing 
+# and behavior, allowing for a more natural and balanced interaction.
+#____________________________________________________________________________________  
     
-        # ─────────────────────────────────────────────────────────────
-    #  WITHIN-subjects schedule → 12 trials  (two 2-s blocks, two 4-s blocks)
-    #  Order is counter-balanced (half the Ps start with 2 s, half with 4 s).
-    #  Each delay block contains the three back-channel types twice
-    #  (type order is randomised but paired with its exact opposite).
-    # ─────────────────────────────────────────────────────────────
-    delays_order = [2, 4]
-    random.shuffle(delays_order)                       # counter-balance start
+    # Creating balanced combinations
+    delays = [2]*6 + [4]*6
+    types  = ["none"]*4 + ["saying"]*4 + ["nod"]*4
 
-    def opposite(seq: list[str]) -> list[str]:
-        rev = seq.copy(); rev.reverse(); return rev
+    # Shuffle separately
+    random.shuffle(delays)
+    random.shuffle(types)
 
-    schedule: list[dict] = []
-    for d in delays_order:                             # two blocks
-        types = ["none", "saying", "nod"]
-        random.shuffle(types)
-        full_block = types + opposite(types)           # six trials for this delay
-        schedule.extend({"delay": d, "type": t} for t in full_block)
+    # Combine to list dicts
+    schedule = [{"delay": d, "type": t} for d, t in zip(delays, types)]
 
-    globals()["BC_SCHEDULE"] = schedule                # store globally
-    globals()["BC_PTR"]       = 0
-    
+    # Shuffle whole schedule again to mix
+    random.shuffle(schedule)
+
+    globals()["BC_SCHEDULE"] = schedule
+    globals()["BC_PTR"] = 0
+        
     return 13                               # Wait for Q to start
 
 
-# 1 ─ Wait one second in neutral expression
+# 1 ─ Wait one second in neutral expression______________________________________________________________________________________________________________
 def state_1_wait():
     misty.display_image(fileName="e_DefaultContent.jpg")
     misty.move_head(-20, 0, 0, 90)
     time.sleep(1)
     speech_detector.reset_timers()
-    return 2
+    return 5
 
 
-# 2 ─ Automatic speaker tracking (tests A/B)
+# 2 ─ Automatic speaker tracking (tests A/B)____________________________________________________________________________________________________________
 def state_2_track():
     global head_position
     global _start_time
+    global head_timer_start
+    
+    speech_detector.left_recorder.start_recording()
+    speech_detector.right_recorder.start_recording()
+    log_data.start()
+
 
     print("AUTOTRACK active — press M menu, Q next, or V verdict …")
     
@@ -301,13 +384,17 @@ def state_2_track():
         now = datetime.now()
         ms = int((now - _start_time).total_seconds() * 1000)
         
+        head_duration = (now - head_timer_start).total_seconds() if head_timer_start else 0.0
+
         with open(RMS_LOGFILE, "a", newline="") as _f:
             csv.writer(_f).writerow([
                 now.isoformat(), ms,
                 {'l':'left', 'r':'right', 'b':'both', 's':'silence'}[speaker],
-                left_rms, right_rms
+                left_rms, right_rms,
+                head_position,
+                round(head_duration, 2)
             ])
-
+            
         # Check explicitly for silence
         if silence_duration > 4.0:
             print("[AUTO] Silence detected (>4s), moving to motivate state.")
@@ -321,6 +408,10 @@ def state_2_track():
         }[speaker]
 
         if new_pos != head_position:
+            if head_timer_start:
+                duration = (now - head_timer_start).total_seconds()
+                log_gaze_duration(head_position, duration)
+            head_timer_start = datetime.now()
             head_position = new_pos
             print(f"[AUTO] New speaker detected ({new_pos}), turning head.")
             if new_pos == "left":
@@ -332,14 +423,25 @@ def state_2_track():
             
         add_head_dir()
         
-    
+        #backchanneling
+        if head_timer_start:
+            head_duration = (now - head_timer_start).total_seconds()
+        else:
+            head_duration = 0.0
+
+        bc_delay = BC_SCHEDULE[BC_PTR]["delay"] if BC_PTR < len(BC_SCHEDULE) else 2
+        if head_position in ('left', 'right') and head_duration >= bc_delay:
+            log_gaze_duration(head_position, head_duration)
+            print(f"[AUTO] Head direction held for {head_duration:.2f}s → backchannel.")
+            return 6
 
         time.sleep(0.2)
 
 
 
 
-# 3 ─ Motivate someone to start talking
+
+# 3 ─ Motivate someone to start talking___________________________________________________
 def state_3_motivate():
     misty.move_head(-20, 0, 0, 90)
     misty.display_image(fileName="e_DefaultContent.jpg")
@@ -353,7 +455,7 @@ def state_3_motivate():
     return 2
 
 
-# 4 ─ Turn head to current speaker
+# 4 ─ Turn head to current speaker________________________________________________________
 def state_4_turn_head():
     if head_position == "left":
         misty.move_head(-20, 0, -54, 90)
@@ -365,79 +467,118 @@ def state_4_turn_head():
     return 5
 
 
-# 5 ─ Keep gaze; tests C/D/E 
+# 5 ─ Keep gaze; tests C/D/E ____________________________________________________________
 def state_5_keep_gaze():
     global head_position
     global last_speaker
     global _start_time
+    global head_timer_start
 
     # 1) operator override?
     override = check_menu_keys()
     if override is not None:
         return override
 
-    # 2) Instant snapshot of who is speaking
-    speaker = speech_detector.detect_speaker(0)  # 'l', 'r', 'b', 's'
+    # 2) Detect candidate speaker, with threshold
+    candidate = speech_detector.detect_speaker(0)
+    MIN_TURN_DURATION = 1.0
+
+    if candidate != last_speaker and candidate in ('l', 'r'):
+        duration = speech_detector.get_speaking_duration_by_side(candidate)
+        if duration >= MIN_TURN_DURATION:
+            speaker = candidate
+        else:
+            speaker = last_speaker
+    else:
+        speaker = candidate
+
     if speaker not in ('l', 'r', 'b', 's'):
         print(f"[ERROR] Invalid speaker detected: {speaker}")
         speaker = 's'
 
-    # 3) Correct RMS logging
-    left_data  = speech_detector.left_recorder.rms_data
-    right_data = speech_detector.right_recorder.rms_data
-    left_rms   = float(np.median(left_data)) if left_data else 0.0
-    right_rms  = float(np.median(right_data)) if right_data else 0.0
+    # 3) RMS logging + how long Misty looks at current side
     now = datetime.now()
+    silence_duration = speech_detector.get_silence_duration()
+    head_duration = (datetime.now() - head_timer_start).total_seconds() if head_timer_start else 0.0
+    print(f"[CHECK] head_position={head_position}, head_duration={head_duration:.2f}, BC delay={BC_SCHEDULE[BC_PTR]['delay']}")
+    print(f"[DEBUG] same speaker={speaker}, silence={silence_duration:.2f}s, head_duration={head_duration:.2f}s")
     ms = int((now - _start_time).total_seconds() * 1000)
+    left_rms = float(np.median(speech_detector.left_recorder.rms_data)) if speech_detector.left_recorder.rms_data else 0.0
+    right_rms = float(np.median(speech_detector.right_recorder.rms_data)) if speech_detector.right_recorder.rms_data else 0.0
+    head_duration = (now - head_timer_start).total_seconds() if head_timer_start else 0.0
 
     with open(RMS_LOGFILE, "a", newline="") as _f:
         csv.writer(_f).writerow([
             now.isoformat(), ms,
-            {'l':'left', 'r':'right', 'b':'both', 's':'silence'}[speaker],
-            left_rms, right_rms
+            {'l': 'left', 'r': 'right', 'b': 'both', 's': 'silence'}[speaker],
+            left_rms, right_rms,
+            head_position,
+            round(head_duration, 2)
         ])
 
-    # 4) If speaker changes → reset timers and turn head
-    if speaker != last_speaker:
+    # 4) Check if the head of Misty needs to be turned
+    new_pos = {
+        'l': 'left',
+        'r': 'right',
+        'b': 'middle',
+        's': 'middle'
+    }[speaker]
+
+
+
+    if new_pos != head_position:
+        # log the time that Misty looked at the other side
+        if head_timer_start:
+            duration = (now - head_timer_start).total_seconds()
+            log_gaze_duration(head_position, duration)
+
+        head_position = new_pos
+        head_timer_start = datetime.now()
+        print(f"[AUTO] Speaker changed ({new_pos}), turning head.")
+        if new_pos == "left":
+            misty.move_head(-20, 0, -54, 90)
+        elif new_pos == "right":
+            misty.move_head(-20, 0, 54, 90)
+        else:
+            misty.move_head(-20, 0, 0, 90)
+
         last_speaker = speaker
         speech_detector.reset_timers()
 
-        new_pos = {
-            'l': 'left',
-            'r': 'right',
-            'b': 'middle',
-            's': 'middle'
-        }[speaker]
+    # 5) Determine the head duration (head at the same side) for the backchannel
+    if not head_timer_start:
+        print("[DEBUG] head_timer_start was None, setting it now")
+        
 
-        if new_pos != head_position:
-            head_position = new_pos
-            print(f"[AUTO] Speaker changed ({new_pos}), turning head.")
-            if new_pos == "left":
-                misty.move_head(-20, 0, -54, 90)
-            elif new_pos == "right":
-                misty.move_head(-20, 0, 54, 90)
-            else:  # 'middle'
-                misty.move_head(-20, 0, 0, 90)
+    head_duration = (datetime.now() - head_timer_start).total_seconds() if head_timer_start else 0.0
+    
 
-    # 5) Keep gaze logic
-    silence_duration = speech_detector.get_silence_duration()
-    speaking_duration = speech_detector.get_speaking_duration()
-
-    print(f"[DEBUG] same speaker={speaker}, silence={silence_duration:.2f}s, speak={speaking_duration:.2f}s")
-
-    if speaker in ('l', 'r', 'b') and speaking_duration >= BC_SCHEDULE[BC_PTR]["delay"]:
-        print("[AUTO] Speaker active for required delay → backchannel.")
+    bc_delay = BC_SCHEDULE[BC_PTR]["delay"] if BC_PTR < len(BC_SCHEDULE) else 2
+    if head_position in ('left', 'right') and head_duration >= bc_delay:
+        log_gaze_duration(head_position, head_duration)
+        print(f"[AUTO] Head direction held for {head_duration:.2f}s → backchannel.")
         return 6
 
     if speaker == 's' and silence_duration > 4.0:
         print("[AUTO] Silence (>4s) → motivate.")
         return 3
+    
+    
+    if head_timer_start:
+        duration = (datetime.now() - head_timer_start).total_seconds()
+        if duration > 1.0:  
+            log_gaze_duration(head_position, duration)
+
+
+    if not head_timer_start:
+        head_timer_start = datetime.now()
 
     time.sleep(0.2)
     return 5
 
 
-# 6 ─ Back-channel utterance / nod / none  ──────────────────────────────
+
+# 6 ─ Back-channel utterance / nod / none_____________________________________________________________________
 def state_6_backchannel():
     print("[BC] Entered state 6 (backchannel)")
     """Run the *next* trial from the within-subjects schedule."""
@@ -482,13 +623,23 @@ def state_6_backchannel():
         pitch, yaw = sys.modules["tracking_model"].LAST_POSE
     eye_contact = abs(pitch) < 20 and abs(yaw) < 20
 
-    # 4) write log row
-    log_backchannel(eye_contact, bc_out or "none", delay)
+    # 4) Determine how long Misty has been looking this way
+    from datetime import datetime as dt
+    gaze_duration = (dt.now() - head_timer_start).total_seconds() if head_timer_start else 0.0
+
+    # 5) write log line
+    log_backchannel(
+        eye_contact=eye_contact,
+        bc=bc_out or "none",
+        delay_s=delay,
+        direction=head_position,
+        duration=gaze_duration
+    )
     speech_detector.reset_timers()
-    return 5                                      # back to keep-gaze
+    return 2                                    # back to active tracking
 
 
-# 7 ─ Robot asks next question or finishes
+# 7 ─ Robot asks next question or finishes_________________________________________________________________________________________
 def _question_sequence():
     if topic == 'h':
         return [starting, question1, question2, question3, question4, question5]
@@ -505,33 +656,41 @@ def state_7_robot_talk():
     seq = _question_sequence()
     max_q = len(seq) - 1
 
-    # 1) nog vragen te gaan?
+    # 1) still question to ask?
     if dialogstage < max_q:
         dialogstage += 1
         
+        #stop recording before robot talks
         speech_detector.left_recorder.stop_recording()
         speech_detector.right_recorder.stop_recording()
         
+        log_data.stop(RMS_LOGFILE)
+        
+        #ask question
         misty.speak(listtostr(seq[dialogstage]))
+        
+        #log the question
         with open(RMS_LOGFILE, "a", newline="") as f:
             csv.writer(f).writerow([
                 datetime.now().isoformat(), 
                 int((datetime.now() - _start_time).total_seconds() * 1000),
-                 "", "", "", 
+                 "", "", "",
+                 "", "", 
                 f"question: {listtostr(seq[dialogstage])}"
             ])
         time.sleep(3.0)
         
+        #after speaking: reset timers and record again
         speech_detector.reset_timers()
         
         speech_detector.left_recorder.start_recording()
         speech_detector.right_recorder.start_recording()
         log_data.start()
-        return 13 if dialogstage == 0 else 1
+        return 13 if dialogstage == 0 else 2
 
-    # 2) exact alle antwoorden verzameld? anders eerst verdict
+    # 2) all answers collected? othwerwise verdict first
     if len(chosen_options) < max_q:
-        # we missen nog keuzes ⇒ vraag verdict
+        # we still miss choices -> ask questoin
         return 10
     
     # closing summary
@@ -565,14 +724,14 @@ def state_7_robot_talk():
     return 12
 
 
-# 8 ─ Simple turn-taking prompt
+# 8 ─ Simple turn-taking prompt___________________________________________________________________________________________________________
 def state_8_turn_taking():
     misty.speak("Okay, how about you?")
     speech_detector.reset_timers()
     return 2
 
 
-# 9 ─ Information on a chosen option (operator)
+# 9 ─ Information on a chosen option (operator)_____________________________________________________________________________________________
 def _info_sets():
     if topic == 'h':
         return (continent, info_holiday), (travelperiod, info_holiday),\
@@ -597,7 +756,7 @@ def state_9_info():
     return 2
 
 
-# 10 ─ Operator picks verdict for current question
+# 10 ─ Operator picks verdict for current question________________________________________________________________________________________________
 def state_10_verdict():
     if not (1 <= dialogstage <= 5):
         return 13
@@ -605,43 +764,81 @@ def state_10_verdict():
     opt_list, _ = _info_sets()[dialogstage - 1]
     print("Choose option (1-4):", end = '', flush = True)
     key = msvcrt.getch().decode('ascii')
+    log_state_button(10, key)
     if key not in '1234':
         return 13
     idx = int(key) - 1
     chosen_options.append(opt_list[idx])
     
+    # Stop recording before Misty speaks
+    speech_detector.left_recorder.stop_recording()
+    speech_detector.right_recorder.stop_recording()
+    log_data.stop(RMS_LOGFILE)
+    
+    # Misty asks question
     misty.speak(f"Is it correct that you chose {opt_list[idx]}?")
+    
+    # Recording starts again after Misty asked question
     speech_detector.reset_timers()
+    speech_detector.left_recorder.start_recording()
+    speech_detector.right_recorder.start_recording()
+    log_data.start()
     
     if input("(yes / no): ").strip().lower() == "yes":
+        speech_detector.left_recorder.stop_recording()
+        speech_detector.right_recorder.stop_recording()
+        log_data.stop(RMS_LOGFILE)
+        
         misty.speak(random.choice([
             f"Clearly {opt_list[idx]} is the best choice.",
             f"Great, you both agree – {opt_list[idx]} it is."
         ]))
+        
         speech_detector.reset_timers()
-        return 7 #op bevestiging -> next question
+        speech_detector.left_recorder.start_recording()
+        speech_detector.right_recorder.start_recording()
+        log_data.start()
+        
+        return 7 #on confirmation -> nex question 
     
     chosen_options.pop()
+    speech_detector.left_recorder.stop_recording()
+    speech_detector.right_recorder.stop_recording()
+    log_data.stop(RMS_LOGFILE)
+    
     misty.speak("Sorry, my mistake. Let's keep discussing.")
+    
     speech_detector.reset_timers()
+    speech_detector.left_recorder.start_recording()
+    speech_detector.right_recorder.start_recording()
+    log_data.start()
+    
     return 2
 
 
-# 11 ─ Repeat current question
+# 11 ─ Repeat current question_____________________________________________________________________________________________________________
 def state_11_repeat():
+    speech_detector.left_recorder.stop_recording()
+    speech_detector.right_recorder.stop_recording()
+    log_data.stop(RMS_LOGFILE)
+    
     misty.speak("I'll repeat the question.")
+    
     speech_detector.reset_timers()
+    speech_detector.left_recorder.start_recording()
+    speech_detector.right_recorder.start_recording()
+    log_data.start()
     global dialogstage
-    # ga één vraag terug
+    # go back 1 question, so you stay at the same question
     dialogstage -= 1
     return 7
 
 
-# 12 ─ Experiment finished
+# 12 ─ Experiment finished_________________________________________________________________________________________________________________________
 def state_12_end():
     misty.stop_speaking(); misty.stop_audio(); misty.stop()
     speech_detector.terminate()
-    log_data.stop("audio_rms_log.csv")   # ■ stopt stream & schrijft CSV
+    log_data.stop("audio_rms_log.csv")   #stops stream and writes CSV
 
 
     # write head-pose CSV
@@ -649,14 +846,19 @@ def state_12_end():
         with open("headpose_log.csv", "w", newline="") as f:
             csv.DictWriter(f, fieldnames=log_headpose[0].keys()).writerows(log_headpose)
 
-    print("Experiment finished – goodbye.")
+    print("Experiment finished - goodbye.")
     return -1
 
 
-# 13 ─ Operator menu (manual override)
+# 13 ─ Operator menu (manual override)_______________________________________________________________________________________________________________
 def state_13_operator():
     print("Operator keys: c long-turn • d switch • t turn-take • i info • v verdict • q next question • m menu • r repeat • a auto")
-    key = msvcrt.getch().decode('ascii').lower()
+
+    try:
+        key = msvcrt.getch().decode('ascii').lower()
+    except:
+        key = '?'  # fallback voor logging
+
     log_state_button(13, key)
 
     if key == 'c':
@@ -684,7 +886,7 @@ def state_13_operator():
 
 
 ##############################################################################
-# ░░░ DISPATCH TABLE ░░░
+# DISPATCH TABLE 
 ##############################################################################
 state_handlers = {
      0: state_0_init,
@@ -705,7 +907,7 @@ state_handlers = {
 
 
 ##############################################################################
-# ░░░ MAIN LOOP ░░░
+# MAIN LOOP 
 ##############################################################################
 def main():
     state = 0

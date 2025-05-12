@@ -188,3 +188,15 @@ import time
 #    if not recent_rms:
 #        return 0.0
 #    return len(speaking) / len(recent_rms) * window
+
+def get_speaking_duration_by_side(side='l'):
+    """Get the speaking duration for a specific side ('l' or 'r')"""
+    global left_recorder, right_recorder
+    if not initialized:
+        return 0.0
+    if side == 'l':
+        return left_recorder.speaking_duration
+    elif side == 'r':
+        return right_recorder.speaking_duration
+    else:
+        return 0.0

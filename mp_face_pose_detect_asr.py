@@ -8,18 +8,43 @@
 
 # Updated version with automatic logging on eye contact and ctrl+c as stop key
 
-import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
+
+import os
+os.environ['MEDIAPIPE_DISABLE_LOGGING'] = '1'
+
+# suppress native (C++) stderr logging
+import sys
+from contextlib import contextmanager
+
+@contextmanager
+def suppress_stderr():
+    with open(os.devnull, 'w') as devnull:
+        old_stderr = os.dup(2)  # duplicate stderr
+        os.dup2(devnull.fileno(), 2)  # redirect stderr to null
+        try:
+            yield
+        finally:
+            os.dup2(old_stderr, 2)  # restore stderr
+
+with suppress_stderr():
+    import absl.logging
+    absl.logging.set_verbosity(absl.logging.ERROR)
+    absl.logging.set_stderrthreshold('fatal')
+    
+    import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
+
+# andere imports hierna
 import cv2
 import math
 from Misty_commands import Misty
 import base64
 from datetime import datetime
-import os
 import numpy as np
 from mediapipe import solutions
 from mediapipe.framework.formats import landmark_pb2
+
 
 # Create unique log file name
 log_file_name = f"log_facepose-{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -40,7 +65,7 @@ def log_facepose(pitch, yaw, eye_contact):
     contact_str = "YES" if eye_contact else "NO"
     with open(log_file_path, 'a', encoding='utf-8') as f:
         f.write(f"{ct}\tPitch: {pitch:.2f}°\tYaw: {yaw:.2f}°\tEye contact: {contact_str}\n")
-    print(f"Log saved to {log_file_path}")
+    #print(f"Log saved to {log_file_path}")
 
 def draw_landmarks_on_image(rgb_image, detection_result):
     face_landmarks_list = detection_result.face_landmarks
@@ -104,16 +129,16 @@ def rotation_matrix_to_angles(rotation_matrix):
     z = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
     return np.array([x, y, z]) * 180. / math.pi
 
-def get_pitch_yaw():
-    print("Initializing FaceLandmarker()")
+def get_pitch_yaw(misty):
+    #print("Initializing FaceLandmarker()")
     detector = FaceLandmarker()
     im_name = "Head Pose Estimation Including Pitch And Yaw"
     done = False
     while not done:
-        print("Attempting to capture image from Misty...")
+        #print("Attempting to capture image from Misty...")
         return_value, cv_image = getMistyImage(misty)
         if not return_value:
-            print("Failed to capture image from camera.")
+            #print("Failed to capture image from camera.")
             continue
 
         detection_result, image = DetectHeadPose(cv_image, detector)
@@ -147,7 +172,9 @@ def get_pitch_yaw():
                 rotation_matrix, _ = cv2.Rodrigues(rotation_vec)
                 pitch, yaw, roll = rotation_matrix_to_angles(rotation_matrix)
 
-                print(f'Pitch: {pitch:.2f}°, Yaw: {yaw:.2f}°')
+                
+                
+                #print(f'Pitch: {pitch:.2f}°, Yaw: {yaw:.2f}°')
 
                 # Eye contact detection
                 eye_contact = abs(pitch) < 20 and abs(yaw) < 20
@@ -162,7 +189,7 @@ def get_pitch_yaw():
         cv2.imshow(im_name, cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
         key = cv2.waitKey(1)
         if key == ord('q'):  # Press 'q' to stop
-            print("Key 'q' pressed. Exiting program.")
+            #print("Key 'q' pressed. Exiting program.")
             break
 
     cv2.destroyWindow(im_name)
@@ -170,7 +197,7 @@ def get_pitch_yaw():
 
 if __name__ == "__main__":
     misty = Misty(ip_address="192.168.0.100")
-    print("Main was started")
+    #print("Main was started")
     try:
         get_pitch_yaw()
     except Exception as e:
