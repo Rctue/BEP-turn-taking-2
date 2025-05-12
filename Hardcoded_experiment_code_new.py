@@ -273,7 +273,7 @@ def state_0_init():
     eye_choice = input("Eye condition(s smooth / d direct): ").lower()
     
     transition_style = Video_player.SMOOTH if eye_choice == "s" else Video_player.DIRECT
-    eye_controller = Video_player(misty, transition_style=transition_style)
+    #eye_controller = Video_player(misty, transition_style=transition_style)
     
     log_data.experiment_data.update({
         "condition": emotional_condition, "topic": topic,
@@ -301,7 +301,7 @@ def state_0_init():
               "I will ask you about your journey. Ask for each other's opinion. Are you ready to begin?"]
     }
     
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     
@@ -349,7 +349,7 @@ def state_0_init():
 
 # 1 ─ Wait one second in neutral expression______________________________________________________________________________________________________________
 def state_1_wait():
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     misty.move_head(-20, 0, 0, 90)
     time.sleep(1)
     speech_detector.reset_timers()
@@ -452,7 +452,7 @@ def state_2_track():
 # 3 ─ Motivate someone to start talking___________________________________________________
 def state_3_motivate():
     misty.move_head(-20, 0, 0, 90)
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     misty.speak(random.choice([
         "So who has any ideas?",
         "So what do you both think?",
@@ -460,7 +460,7 @@ def state_3_motivate():
         "Let us try to share some ideas."
     ]))
     speech_detector.reset_timers()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     return 2
 
 
@@ -619,10 +619,10 @@ def state_6_backchannel():
 
     elif bc_type == "saying":
         bc_out = random.choice(BC_SAYINGS)
-        eye_controller.set_speaking_mode()
+        #eye_controller.set_speaking_mode()
         misty.speak(bc_out)
         speech_detector.reset_timers()
-        eye_controller.set_listening_mode()
+        #eye_controller.set_listening_mode()
 
     else:                                          # should never happen
         bc_out = ""
@@ -693,7 +693,7 @@ def state_7_robot_talk():
         
         #after speaking: reset timers and record again
         speech_detector.reset_timers()
-        eye_controller.set_listening_mode()
+        #eye_controller.set_listening_mode()
         
         speech_detector.left_recorder.start_recording()
         speech_detector.right_recorder.start_recording()
@@ -724,7 +724,7 @@ def state_7_robot_talk():
                     " and you will ", chosen_options[3],
                     ". Thanks for participating – please fill in both questionnaires."]]
     
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     
@@ -734,16 +734,16 @@ def state_7_robot_talk():
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     return 12
 
 
 # 8 ─ Simple turn-taking prompt___________________________________________________________________________________________________________
 def state_8_turn_taking():
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     misty.speak("Okay, how about you?")
     speech_detector.reset_timers()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     return 2
 
 
@@ -766,11 +766,23 @@ def state_9_info():
     val = input("Give option number (1-4): ")
     if not val.isdigit() or not 1 <= int(val) <= 4 or not (1 <= dialogstage <= 5):
         return 13
+    
     opt_list, info_dict = _info_sets()[dialogstage - 1]
-    eye_controller.set_speaking_mode()
+    
+    speech_detector.left_recorder.stop_recording()
+    speech_detector.right_recorder.stop_recording()
+    log_data.stop(RMS_LOGFILE)
+    
+    #eye_controller.set_speaking_mode()
     misty.speak(listtostr(info_dict.get(opt_list[int(val) - 1], "")))
     speech_detector.reset_timers()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
+    
+    speech_detector.reset_timers()
+    speech_detector.left_recorder.start_recording()
+    speech_detector.right_recorder.start_recording()
+    log_data.start()
+    
     return 2
 
 
