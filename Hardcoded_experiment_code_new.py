@@ -476,7 +476,7 @@ def state_4_turn_head():
     return 5
 
 
-# 5 ─ Keep gaze; tests C/D/E ____________________________________________________________
+# 5 ─ Keep gaze; tests C/D/E (not really being used at the moment, because we don't have those tests in our state machine) ____________________________________________________________
 def state_5_keep_gaze():
     global head_position
     global last_speaker
