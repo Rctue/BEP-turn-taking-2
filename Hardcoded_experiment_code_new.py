@@ -63,6 +63,7 @@ import datetime
 from datetime import datetime
 import speech_detector                     # uses AVData_new internally
 import AVData_new as AVData                # <- renamed module
+from new_videos import Video_player        #video display for the eye transitions
 
 # Topic scripts
 from script_holiday_hardcoded     import *
@@ -260,14 +261,20 @@ if ENABLE_FACE_TRACKING:
 ##############################################################################
 # 0 ─ Experiment initialisation___________________________________________________________________________________________________
 def state_0_init():
-    global emotional_condition, topic, gestures
+    global emotional_condition, topic, gestures 
     global IDP1, IDP2, NameP1, NameP2
+    global eye_controller
+
 
     print("Initialising …")
     topic   = input("Topic (h holiday / d dream-house / t time-travel): ").lower()
     NameP1  = input("Name participant LEFT : ");  IDP1 = input("ID LEFT  : ")
     NameP2  = input("Name participant RIGHT: "); IDP2 = input("ID RIGHT : ")
-
+    eye_choice = input("Eye condition(s smooth / d direct): ").lower()
+    
+    transition_style = Video_player.SMOOTH if eye_choice == "s" else Video_player.DIRECT
+    eye_controller = Video_player(misty, transition_style=transition_style)
+    
     log_data.experiment_data.update({
         "condition": emotional_condition, "topic": topic,
         "gestures": gestures, "IDP1": IDP1, "IDP2": IDP2
@@ -294,6 +301,7 @@ def state_0_init():
               "I will ask you about your journey. Ask for each other's opinion. Are you ready to begin?"]
     }
     
+    eye_controller.set_speaking_mode()
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     
@@ -341,7 +349,7 @@ def state_0_init():
 
 # 1 ─ Wait one second in neutral expression______________________________________________________________________________________________________________
 def state_1_wait():
-    misty.display_image(fileName="e_DefaultContent.jpg")
+    eye_controller.set_listening_mode()
     misty.move_head(-20, 0, 0, 90)
     time.sleep(1)
     speech_detector.reset_timers()
@@ -444,7 +452,7 @@ def state_2_track():
 # 3 ─ Motivate someone to start talking___________________________________________________
 def state_3_motivate():
     misty.move_head(-20, 0, 0, 90)
-    misty.display_image(fileName="e_DefaultContent.jpg")
+    eye_controller.set_speaking_mode()
     misty.speak(random.choice([
         "So who has any ideas?",
         "So what do you both think?",
@@ -452,6 +460,7 @@ def state_3_motivate():
         "Let us try to share some ideas."
     ]))
     speech_detector.reset_timers()
+    eye_controller.set_listening_mode()
     return 2
 
 
@@ -610,8 +619,10 @@ def state_6_backchannel():
 
     elif bc_type == "saying":
         bc_out = random.choice(BC_SAYINGS)
+        eye_controller.set_speaking_mode()
         misty.speak(bc_out)
         speech_detector.reset_timers()
+        eye_controller.set_listening_mode()
 
     else:                                          # should never happen
         bc_out = ""
@@ -682,6 +693,7 @@ def state_7_robot_talk():
         
         #after speaking: reset timers and record again
         speech_detector.reset_timers()
+        eye_controller.set_listening_mode()
         
         speech_detector.left_recorder.start_recording()
         speech_detector.right_recorder.start_recording()
@@ -712,6 +724,7 @@ def state_7_robot_talk():
                     " and you will ", chosen_options[3],
                     ". Thanks for participating – please fill in both questionnaires."]]
     
+    eye_controller.set_speaking_mode()
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     
@@ -721,13 +734,16 @@ def state_7_robot_talk():
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
+    eye_controller.set_listening_mode()
     return 12
 
 
 # 8 ─ Simple turn-taking prompt___________________________________________________________________________________________________________
 def state_8_turn_taking():
+    eye_controller.set_speaking_mode()
     misty.speak("Okay, how about you?")
     speech_detector.reset_timers()
+    eye_controller.set_listening_mode()
     return 2
 
 
@@ -751,8 +767,10 @@ def state_9_info():
     if not val.isdigit() or not 1 <= int(val) <= 4 or not (1 <= dialogstage <= 5):
         return 13
     opt_list, info_dict = _info_sets()[dialogstage - 1]
+    eye_controller.set_speaking_mode()
     misty.speak(listtostr(info_dict.get(opt_list[int(val) - 1], "")))
     speech_detector.reset_timers()
+    eye_controller.set_listening_mode()
     return 2
 
 
