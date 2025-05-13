@@ -34,6 +34,11 @@ with suppress_stderr():
     import mediapipe as mp
     from mediapipe.tasks import python
     from mediapipe.tasks.python import vision
+    
+from pathlib import Path
+SCRIPT_DIR = Path(__file__).parent
+MODEL_PATH = SCRIPT_DIR / "face_landmarker_v2_with_blendshapes.task"
+log_file_path: str | Path = SCRIPT_DIR / f"log_facepose_all.txt"
 
 # andere imports hierna
 import cv2
@@ -47,25 +52,29 @@ from mediapipe.framework.formats import landmark_pb2
 
 
 # Create unique log file name
-log_file_name = f"log_facepose-{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_file_name)
+def set_all_log_path(folder: str | os.PathLike):
+    """
+    Laat de uitgebreide face-pose-log in <folder>/log_facepose_all.txt schrijven
+    en zet meteen de header.  Aanroepen vanuit state_0_init().
+    """
+    global log_file_path
+    log_file_path = Path(folder) / "log_facepose_all.txt"
 
-# Add explanation to top of log file (once at startup)
-with open(log_file_path, 'w', encoding='utf-8') as f:
-    f.write("LOGGING OF HEAD POSE\n")
-    f.write("Each entry includes a timestamp, pitch (up/down), yaw (left/right), and whether eye contact was detected.\n")
-    f.write("Pitch = vertical head movement (degrees)\n")
-    f.write("Yaw = horizontal head rotation (degrees)\n")
-    f.write("Eye contact = YES if pitch AND yaw are both between -20° and +20°\n")
-    f.write("-" * 70 + "\n")
+    with open(log_file_path, "w", encoding="utf-8") as f:
+        f.write("FULL LOG OF HEAD POSE (every frame)\n")
+        f.write("timestamp\tpitch_deg\tyaw_deg\tdirection\teye_contact\n")
+        f.write("-" * 60 + "\n")
 
 # Logging function
 def log_facepose(pitch, yaw, eye_contact):
+    direction = ("left" if yaw < -20 else
+                 "right" if yaw > 20 else
+                 "middle")
     ct = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     contact_str = "YES" if eye_contact else "NO"
-    with open(log_file_path, 'a', encoding='utf-8') as f:
-        f.write(f"{ct}\tPitch: {pitch:.2f}°\tYaw: {yaw:.2f}°\tEye contact: {contact_str}\n")
-    #print(f"Log saved to {log_file_path}")
+    with open(log_file_path, "a", encoding="utf-8") as f:
+        f.write(f"{ct}\t{pitch:.2f}\t{yaw:.2f}\t{direction}\t{contact_str}\n")
+
 
 def draw_landmarks_on_image(rgb_image, detection_result):
     face_landmarks_list = detection_result.face_landmarks
@@ -97,7 +106,7 @@ def draw_landmarks_on_image(rgb_image, detection_result):
     return annotated_image
 
 def FaceLandmarker():
-    base_options = python.BaseOptions(model_asset_path='face_landmarker_v2_with_blendshapes.task')
+    base_options = python.BaseOptions(model_asset_path=str(MODEL_PATH))
     options = vision.FaceLandmarkerOptions(
         base_options=base_options,
         output_face_blendshapes=True,

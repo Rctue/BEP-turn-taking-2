@@ -67,6 +67,10 @@ from new_videos import Video_player        #video display for the eye transition
 
 from pathlib import Path          # NEW
 LOG_DIR = None                    # gets its value in state_0_init()
+RESULTS_LOGFILE = None
+
+from mp_face_pose_detect_asr import set_all_log_path
+
 
 # Topic scripts
 from script_holiday_hardcoded     import *
@@ -75,11 +79,12 @@ from script_timetravel_hardcoded  import *
 
 
 # Optional Mediapipe face / head-pose tracking __________________________________________________________
-ENABLE_FACE_TRACKING = False 
+ENABLE_FACE_TRACKING = True
 if ENABLE_FACE_TRACKING:
     # <<  use the file name that contains your Mediapipe code  >>
     from mp_face_pose_detect_asr import get_pitch_yaw           # returns (pitch,yaw)
     import mp_face_pose_detect_asr as tracking_model            # alias → used for cache
+    sys.modules["tracking_model"] = tracking_model 
 
 #emergency override
 def check_menu_keys():
@@ -143,7 +148,7 @@ topic = "";   emotional_condition = "";   gestures = "n"
 # ──────────────────────────────────────────────────────────
 # BACK-CHANNEL FACTORS 
 # (chosen once in state 0)
-BC_SAYINGS = ["uh-huh", "mmhm", "okay", "yeah"]
+BC_SAYINGS = ["uh-huh", "okay", "yeah"]     #could not do 'mmhmm', because the misty robot spoke really weird
 
 # run-time schedule pointer (filled in state 0)
 BC_SCHEDULE: list[dict] = []
@@ -194,8 +199,12 @@ def listtostr(obj):
 
 
 def log_state_button(state: int, key=""):
+    global RESULTS_LOGFILE, LOG_DIR
     """Log any manual button/state transition for debugging."""
-    fn = f"result_{IDP1}_{IDP2}.txt"
+    fn = RESULTS_LOGFILE or (
+         LOG_DIR / "results.txt" if LOG_DIR else
+         Path(f"results_{IDP1}_{IDP2}.txt"))
+
     with open(fn, "a") as f:
         f.write(f"{state}\t{key}\t{datetime.now()}\t{head_position}\n")
 
@@ -224,9 +233,16 @@ def log_gaze_duration(position: str, duration: float):
 # FACE-TRACKING THREAD 
 ##############################################################################
 def face_tracking_thread():
-    global face_direction
+    global face_direction, FACEPOSE_LOGFILE
     try:
         while True:
+            # wacht tot camera & model zijn geïnitialiseerd
+            try:
+                get_pitch_yaw(misty)          # één test-call
+            except Exception as e:
+                print("[WARN] face-tracking init mislukt:", e)
+                time.sleep(1.0)
+                continue   
             try:
                 is_playing = misty.get_audio_playing().json().get('result', False)
             except:
@@ -245,6 +261,15 @@ def face_tracking_thread():
                 face_direction = "right"
             else:
                 face_direction = "middle"
+               
+            eye_contact = abs(pitch) <20 and abs(yaw) < 20
+             
+            if face_direction in ("left", "right") and FACEPOSE_LOGFILE:
+                with open(FACEPOSE_LOGFILE, "a") as f:
+                    f.write(f"{datetime.now().isoformat(timespec='seconds')}\t"
+                            f"{face_direction}\t{pitch:.2f}\t{yaw:.2f}\t"
+                            f"{int(eye_contact)}\n")
+
 
             time.sleep(1.0)
     except Exception as e:
@@ -275,7 +300,7 @@ def state_0_init():
     NameP2  = input("Name participant RIGHT: "); IDP2 = input("ID RIGHT : ")
     
         # ─── Create per-session log folder ─────────────────────────────────
-    global LOG_DIR, RMS_LOGFILE, GAZE_LOGFILE, BC_LOGFILE
+    global LOG_DIR, RMS_LOGFILE, GAZE_LOGFILE, BC_LOGFILE, FACEPOSE_LOGFILE, RESULTS_LOGFILE
     import datetime as dt
 
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -293,6 +318,8 @@ def state_0_init():
     RMS_LOGFILE  = LOG_DIR / f"rms_log_{timestamp}.csv"
     GAZE_LOGFILE = LOG_DIR / f"gaze_log_{timestamp}.csv"
     BC_LOGFILE   = LOG_DIR / f"bc_log_{timestamp}.csv"
+    RESULTS_LOGFILE = LOG_DIR / "results.txt"
+    open(RESULTS_LOGFILE, "w").close()
 
     # ─── ensure the three CSVs exist with their header row ──────────────
     headers = [
@@ -316,7 +343,15 @@ def state_0_init():
         "condition": emotional_condition, "topic": topic,
         "gestures": gestures, "IDP1": IDP1, "IDP2": IDP2
     })
+    
+    FACEPOSE_LOGFILE = None
+    FACEPOSE_LOGFILE = LOG_DIR / "log_facepose.txt"
+    with open(FACEPOSE_LOGFILE, "w") as f:
+        f.write("timestamp\tdirection\tpitch_deg\tyaw_deg\teye_contact\n")
 
+    from mp_face_pose_detect_asr import set_all_log_path
+    set_all_log_path(LOG_DIR)
+    
     print("Calibrating microphones …")
     speech_detector.setup_speech_detection()
 
@@ -338,7 +373,7 @@ def state_0_init():
               "I will ask you about your journey. Ask for each other's opinion. Are you ready to begin?"]
     }
     
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     
@@ -386,7 +421,7 @@ def state_0_init():
 
 # 1 ─ Wait one second in neutral expression______________________________________________________________________________________________________________
 def state_1_wait():
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     misty.move_head(-20, 0, 0, 90)
     time.sleep(1)
     speech_detector.reset_timers()
@@ -489,7 +524,7 @@ def state_2_track():
 # 3 ─ Motivate someone to start talking___________________________________________________
 def state_3_motivate():
     misty.move_head(-20, 0, 0, 90)
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     misty.speak(random.choice([
         "So who has any ideas?",
         "So what do you both think?",
@@ -497,7 +532,7 @@ def state_3_motivate():
         "Let us try to share some ideas."
     ]))
     speech_detector.reset_timers()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     return 2
 
 
@@ -656,10 +691,10 @@ def state_6_backchannel():
 
     elif bc_type == "saying":
         bc_out = random.choice(BC_SAYINGS)
-        eye_controller.set_speaking_mode()
+        #eye_controller.set_speaking_mode()
         misty.speak(bc_out)
         speech_detector.reset_timers()
-        eye_controller.set_listening_mode()
+        #eye_controller.set_listening_mode()
 
     else:                                          # should never happen
         bc_out = ""
@@ -726,15 +761,13 @@ def state_7_robot_talk():
                  "", "", 
                 f"question: {listtostr(seq[dialogstage])}"
             ])
-        time.sleep(3.0)
+        time.sleep(7.0)
         
-        #after speaking: reset timers and record again
-        speech_detector.reset_timers()
-        eye_controller.set_listening_mode()
-        
-        speech_detector.left_recorder.start_recording()
-        speech_detector.right_recorder.start_recording()
-        log_data.start()
+        if dialogstage != 0:
+            speech_detector.reset_timers()
+            speech_detector.left_recorder.start_recording()
+            speech_detector.right_recorder.start_recording()
+            log_data.start()
         return 13 if dialogstage == 0 else 2
 
     # 2) all answers collected? othwerwise verdict first
@@ -761,7 +794,7 @@ def state_7_robot_talk():
                     " and you will ", chosen_options[3],
                     ". Thanks for participating – please fill in both questionnaires."]]
     
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     
@@ -771,16 +804,16 @@ def state_7_robot_talk():
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     return 12
 
 
 # 8 ─ Simple turn-taking prompt___________________________________________________________________________________________________________
 def state_8_turn_taking():
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     misty.speak("Okay, how about you?")
     speech_detector.reset_timers()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     return 2
 
 
@@ -810,10 +843,10 @@ def state_9_info():
     speech_detector.right_recorder.stop_recording()
     log_data.stop(RMS_LOGFILE)
     
-    eye_controller.set_speaking_mode()
+    #eye_controller.set_speaking_mode()
     misty.speak(listtostr(info_dict.get(opt_list[int(val) - 1], "")))
     speech_detector.reset_timers()
-    eye_controller.set_listening_mode()
+    #eye_controller.set_listening_mode()
     
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
@@ -903,19 +936,35 @@ def state_11_repeat():
 
 # 12 ─ Experiment finished_________________________________________________________________________________________________________________________
 def state_12_end():
-    misty.stop_speaking(); misty.stop_audio(); misty.stop()
+    misty.stop_speaking()
+    misty.stop_audio()
+    
+    
+    if hasattr(misty, "stop"):
+        misty.stop()                     # simulatie - alles uit
+    else:
+        # echte robot: rijmotoren en hoofd nog even neutraal zetten
+        try:
+            misty.drive_stop()
+        except Exception:
+            pass
+        try:
+            misty.move_head(0, 0, 0)     # pitch, roll, yaw = 0
+        except Exception:
+            pass
+
+    # logging afsluiten
     speech_detector.terminate()
-    log_data.stop(str(LOG_DIR /"audio_rms_log.csv"))  #stops stream and writes CSV
+    log_data.stop(str(LOG_DIR / "audio_rms_log.csv"))
 
-
-    # write head-pose CSV
+    # head-pose CSV schrijven
     if log_headpose:
         with open(LOG_DIR / "headpose_log.csv", "w", newline="") as f:
-            csv.DictWriter(f, fieldnames=log_headpose[0].keys()).writerows(log_headpose)
+            csv.DictWriter(f,
+                fieldnames=log_headpose[0].keys()).writerows(log_headpose)
 
-    print("Experiment finished - goodbye.")
+    print("Experiment finished – goodbye.")
     return -1
-
 
 # 13 ─ Operator menu (manual override)_______________________________________________________________________________________________________________
 def state_13_operator():
