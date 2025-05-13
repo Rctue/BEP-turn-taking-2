@@ -65,6 +65,9 @@ import speech_detector                     # uses AVData_new internally
 import AVData_new as AVData                # <- renamed module
 from new_videos import Video_player        #video display for the eye transitions
 
+from pathlib import Path          # NEW
+LOG_DIR = None                    # gets its value in state_0_init()
+
 # Topic scripts
 from script_holiday_hardcoded     import *
 from script_dream_house_hardcoded import *
@@ -270,6 +273,40 @@ def state_0_init():
     topic   = input("Topic (h holiday / d dream-house / t time-travel): ").lower()
     NameP1  = input("Name participant LEFT : ");  IDP1 = input("ID LEFT  : ")
     NameP2  = input("Name participant RIGHT: "); IDP2 = input("ID RIGHT : ")
+    
+        # ─── Create per-session log folder ─────────────────────────────────
+    global LOG_DIR, RMS_LOGFILE, GAZE_LOGFILE, BC_LOGFILE
+    import datetime as dt
+
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    
+    # folder:  <script dir>/experiment_logs/ID1-ID2__YYYY-MM-DD_HH-MM-SS
+    LOG_DIR = (
+        Path(__file__).parent
+        / "experiment_logs"
+        / f"{IDP1}-{IDP2}__{timestamp}"
+    )
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[INFO] Log files → {LOG_DIR.resolve()}")   # visible in GUI
+
+    # point the three main log variables to that new folder
+    RMS_LOGFILE  = LOG_DIR / f"rms_log_{timestamp}.csv"
+    GAZE_LOGFILE = LOG_DIR / f"gaze_log_{timestamp}.csv"
+    BC_LOGFILE   = LOG_DIR / f"bc_log_{timestamp}.csv"
+
+    # ─── ensure the three CSVs exist with their header row ──────────────
+    headers = [
+        (RMS_LOGFILE,  ["timestamp","ms_since_start","speaker",
+                        "rms_left","rms_right","head_position","head_duration"]),
+        (GAZE_LOGFILE, ["timestamp","head_position","duration_s"]),
+        (BC_LOGFILE,   ["timestamp","eye_contact","backchannel",
+                        "delay_s","head_position","gaze_duration"]),
+    ]
+    for path, hdr in headers:
+        with open(path, "w", newline="") as f:
+            csv.writer(f).writerow(hdr)
+            
+            
     eye_choice = input("Eye condition(s smooth / d direct): ").lower()
     
     transition_style = Video_player.SMOOTH if eye_choice == "s" else Video_player.DIRECT
@@ -868,12 +905,12 @@ def state_11_repeat():
 def state_12_end():
     misty.stop_speaking(); misty.stop_audio(); misty.stop()
     speech_detector.terminate()
-    log_data.stop("audio_rms_log.csv")   #stops stream and writes CSV
+    log_data.stop(str(LOG_DIR /"audio_rms_log.csv"))  #stops stream and writes CSV
 
 
     # write head-pose CSV
     if log_headpose:
-        with open("headpose_log.csv", "w", newline="") as f:
+        with open(LOG_DIR / "headpose_log.csv", "w", newline="") as f:
             csv.DictWriter(f, fieldnames=log_headpose[0].keys()).writerows(log_headpose)
 
     print("Experiment finished - goodbye.")
