@@ -43,7 +43,7 @@ if not simulate:
     try:
         from Misty_commands import Misty
         #quick accessibility test
-        requests.get("http://192.168.0.104/api/device", timeout=2)
+        requests.get("http://192.168.0.100/api/device", timeout=2)
     except Exception as e:
         print("[WARN] Robot niet bereikbaar → schakel naar FakeMisty:", e)
         simulate = True
@@ -112,7 +112,7 @@ def check_menu_keys():
 ##############################################################################
 # GLOBAL RUNTIME STATE 
 ##############################################################################
-robot_ip = "192.168.0.104"
+robot_ip = "192.168.0.100"
 misty    = Misty(ip_address=robot_ip)
 last_speaker = None
 head_timer_start = None
@@ -398,11 +398,11 @@ def state_0_init():
 
     
     if topic == "h":
-        delay = 15
+        delay = 16
     if topic == "d":
-        delay = 11
+        delay = 13
     if topic == "t":
-        delay = 9
+        delay = 10
     
     if eye_choice == "d":
         vc.delay_playback(misty, delay, "loop_dim.mp4")
