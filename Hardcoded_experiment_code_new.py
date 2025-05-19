@@ -43,7 +43,7 @@ if not simulate:
     try:
         from Misty_commands import Misty
         #quick accessibility test
-        requests.get("http://192.168.0.101/api/device", timeout=2)
+        requests.get("http://192.168.0.104/api/device", timeout=2)
     except Exception as e:
         print("[WARN] Robot niet bereikbaar → schakel naar FakeMisty:", e)
         simulate = True
@@ -65,6 +65,9 @@ import speech_detector                     # uses AVData_new internally
 import AVData_new as AVData                # <- renamed module
 from new_videos import Video_player        #video display for the eye transitions
 
+from mistyPy.Robot import Robot
+from mistyPy.Events import Events
+
 from pathlib import Path          # NEW
 LOG_DIR = None                    # gets its value in state_0_init()
 RESULTS_LOGFILE = None
@@ -79,7 +82,7 @@ from script_timetravel_hardcoded  import *
 
 
 # Optional Mediapipe face / head-pose tracking __________________________________________________________
-ENABLE_FACE_TRACKING = True
+ENABLE_FACE_TRACKING = False
 if ENABLE_FACE_TRACKING:
     # <<  use the file name that contains your Mediapipe code  >>
     from mp_face_pose_detect_asr import get_pitch_yaw           # returns (pitch,yaw)
@@ -109,7 +112,7 @@ def check_menu_keys():
 ##############################################################################
 # GLOBAL RUNTIME STATE 
 ##############################################################################
-robot_ip = "192.168.0.101"
+robot_ip = "192.168.0.104"
 misty    = Misty(ip_address=robot_ip)
 last_speaker = None
 head_timer_start = None
@@ -136,6 +139,7 @@ with open(GAZE_LOGFILE, "w", newline="") as f:
 import speech_detector; speech_detector.set_thresholds(
         log_data.rec_left,  log_data.rec_right,
         log_data.thresh_left, log_data.thresh_right)
+import video_changes_new as vc
 
 head_position  = "middle"           # 'left' | 'right' | 'middle'
 face_direction = "middle"           #'left', 'right', or  middle' on basis of face
@@ -291,7 +295,7 @@ if ENABLE_FACE_TRACKING:
 def state_0_init():
     global emotional_condition, topic, gestures 
     global IDP1, IDP2, NameP1, NameP2
-    global eye_controller
+    global eye_choice
 
 
     print("Initialising …")
@@ -374,15 +378,43 @@ def state_0_init():
     }
     
     #eye_controller.set_speaking_mode()
+    
+    # Step 1: 
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+        print("Displaying loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+        print("Displaying dim_to_bright_smooth.mp4")
+    
+    # Step 2: Stop audio recording
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
-    
+
+  
+    # Step 3: Misty speaks
+
     misty.speak(listtostr(intro_map[topic]))
+
     
+    if topic == "h":
+        delay = 15
+    if topic == "d":
+        delay = 11
+    if topic == "t":
+        delay = 9
+    
+    if eye_choice == "d":
+        vc.delay_playback(misty, delay, "loop_dim.mp4")
+        print("Displaying loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
+        print("Displaying bright_to_dim_smooth.mp4")
+
+
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
-    
 
 #___________________________________________________________________________________
 # Counterbalancing factors (backchannel schedule generation)
@@ -422,6 +454,7 @@ def state_0_init():
 # 1 ─ Wait one second in neutral expression______________________________________________________________________________________________________________
 def state_1_wait():
     #eye_controller.set_listening_mode()
+    vc.delay_playback(misty, 0, "loop_dim.mp4")
     misty.move_head(-20, 0, 0, 90)
     time.sleep(1)
     speech_detector.reset_timers()
@@ -524,15 +557,29 @@ def state_2_track():
 # 3 ─ Motivate someone to start talking___________________________________________________
 def state_3_motivate():
     misty.move_head(-20, 0, 0, 90)
-    #eye_controller.set_speaking_mode()
+
+    #Step 1: Bright video starts playing
+    if eye_choice == "s":
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+    else:
+        vc.delay_playback(misty, 0, "loop_bright.mp4")    
+
+    #Step 2: Misty speaks
+    #2s is the approx. time of this speech utterance
     misty.speak(random.choice([
         "So who has any ideas?",
         "So what do you both think?",
         "Who of you can say something about it?",
         "Let us try to share some ideas."
     ]))
+
+    #Step 3: Misty goes to silent state (dim video) 
+    if eye_choice == "d":
+        vc.delay_playback(misty, 2, "loop_dim.mp4") 
+    else:
+        vc.delay_playback(misty, 2, "bright_to_dim_smooth.mp4")
+
     speech_detector.reset_timers()
-    #eye_controller.set_listening_mode()
     return 2
 
 
@@ -691,10 +738,24 @@ def state_6_backchannel():
 
     elif bc_type == "saying":
         bc_out = random.choice(BC_SAYINGS)
-        #eye_controller.set_speaking_mode()
+        #Step 1: Bright video starts playing
+        if eye_choice == "d":
+            vc.delay_playback(misty, 0, "loop_bright.mp4")
+        else:
+            vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+
+        # Step 2: Misty speaks
         misty.speak(bc_out)
+        
+        #Step 3: Misty goes to silent state (dim video)
+        if eye_choice == "d":
+            vc.delay_playback(misty, delay, "loop_dim.mp4")
+        else:
+            vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
+        
         speech_detector.reset_timers()
-        #eye_controller.set_listening_mode()
+
+        
 
     else:                                          # should never happen
         bc_out = ""
@@ -748,9 +809,63 @@ def state_7_robot_talk():
         speech_detector.right_recorder.stop_recording()
         
         log_data.stop(RMS_LOGFILE)
+        # Step 1: Set and play the first video
+        if eye_choice == "d":
+            vc.delay_playback(misty, 0, "loop_bright.mp4")
+        else:
+            vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
         
+        #Step 2: Misty speaks
         #ask question
         misty.speak(listtostr(seq[dialogstage]))
+        
+        # Step 3: Misty goes to silent state (dim video)
+        #The duration of the speaking utterances is determined in the delay constant
+        if topic == "h":
+            if dialogstage == 0:
+                delay = 5
+            elif dialogstage == 1:
+                delay = 7.2 
+            elif dialogstage == 2:
+                delay = 6.3
+            elif dialogstage == 3:
+                delay = 8
+            elif dialogstage == 4:
+                delay = 13.8
+            else:
+                delay = 7.2
+        if topic == "d":
+            if dialogstage == 0:
+                delay = 5
+            elif dialogstage == 1:
+                delay = 6.7 
+            elif dialogstage == 2:
+                delay = 9.6
+            elif dialogstage == 3:
+                delay = 10
+            elif dialogstage == 4:
+                delay = 14.5
+            else:
+                delay = 10
+        if topic == "t":
+            if dialogstage == 0:
+                delay = 5
+            elif dialogstage == 1:
+                delay = 11.2
+            elif dialogstage == 2:
+                delay = 13.2
+            elif dialogstage == 3:
+                delay = 12
+            elif dialogstage == 4:
+                delay = 13.4
+            else:
+                delay = 9.5
+        
+        if eye_choice == "d":
+            vc.delay_playback(misty, delay, "loop_dim.mp4")
+        else:
+            vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
+        
         
         #log the question
         with open(RMS_LOGFILE, "a", newline="") as f:
@@ -759,9 +874,10 @@ def state_7_robot_talk():
                 int((datetime.now() - _start_time).total_seconds() * 1000),
                  "", "", "",
                  "", "", 
-                f"question: {listtostr(seq[dialogstage])}"
+                f"question: {listtostr(seq[dialogstage])}" #chooses the question to ask
             ])
-        time.sleep(7.0)
+        
+        
         
         if dialogstage != 0:
             speech_detector.reset_timers()
@@ -794,26 +910,53 @@ def state_7_robot_talk():
                     " and you will ", chosen_options[3],
                     ". Thanks for participating – please fill in both questionnaires."]]
     
-    #eye_controller.set_speaking_mode()
+    
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
-    
+    # Step 1: Set and play the first video
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+    #Step 2: Misty speaks
     misty.speak(listtostr(closing))
     time.sleep(3.0)
     
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
-    #eye_controller.set_listening_mode()
+    
+    if topic == "h":
+        delay = 15.
+    elif topic == "d":
+        delay = 12.3
+    else:
+        delay = 13.4
+
+    if eye_choice == "d":
+        vc.delay_playback(misty, delay, "loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
     return 12
+
 
 
 # 8 ─ Simple turn-taking prompt___________________________________________________________________________________________________________
 def state_8_turn_taking():
-    #eye_controller.set_speaking_mode()
+    # Step 1: Set and play the first video
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+    #Step 2: Misty speaks
     misty.speak("Okay, how about you?")
+    # Step 3: Misty goes to silent state (dim video)
+    if eye_choice == "d":
+        vc.delay_playback(misty, 2, "loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, 2, "bright_to_dim_smooth.mp4")
+    
     speech_detector.reset_timers()
-    #eye_controller.set_listening_mode()
     return 2
 
 
@@ -843,17 +986,66 @@ def state_9_info():
     speech_detector.right_recorder.stop_recording()
     log_data.stop(RMS_LOGFILE)
     
-    #eye_controller.set_speaking_mode()
+    # Step 1: Set and play the first video
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+
+    #Step 2: Misty speaks
     misty.speak(listtostr(info_dict.get(opt_list[int(val) - 1], "")))
     speech_detector.reset_timers()
-    #eye_controller.set_listening_mode()
-    
+
+    time.sleep(1)
+
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
     log_data.start()
-    
+
+    #Step 3: Misty goes to silent state (dim video)
+
+    if topic == "h":
+        if dialogstage == 1:
+            delay = 7.5
+        elif dialogstage == 2:
+            delay = 7
+        elif dialogstage == 3:
+            delay = 4.5
+        elif dialogstage == 4:
+            delay = 4
+        else:
+            delay = 4
+    if topic == "d":
+        if dialogstage == 1:
+            delay = 8.5 
+        elif dialogstage == 2:
+            delay = 8.2
+        elif dialogstage == 3:
+            delay = 6.5
+        elif dialogstage == 4:
+            delay = 6.5
+        else:
+            delay = 7
+    if topic == "t":
+        if dialogstage == 1:
+            delay = 10.5
+        elif dialogstage == 2:
+            delay = 7
+        elif dialogstage == 3:
+            delay = 7
+        elif dialogstage == 4:
+            delay = 7
+        else:
+            delay = 6.5
+
+    if eye_choice == "d":
+        vc.delay_playback(misty, delay, "loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
     return 2
+    
+
 
 
 # 10 ─ Operator picks verdict for current question________________________________________________________________________________________________
@@ -874,9 +1066,22 @@ def state_10_verdict():
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     log_data.stop(RMS_LOGFILE)
-    
+    # Step 1: Set and play the first video
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+
+    #Step 2: Misty speaks
     # Misty asks question
     misty.speak(f"Is it correct that you chose {opt_list[idx]}?")
+    
+    #Step 3: Misty goes to silent state (dim video)
+    if eye_choice == "d":
+        vc.delay_playback(misty, 4, "loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, 4, "bright_to_dim_smooth.mp4")
+
     
     # Recording starts again after Misty asked question
     speech_detector.reset_timers()
@@ -889,11 +1094,24 @@ def state_10_verdict():
         speech_detector.right_recorder.stop_recording()
         log_data.stop(RMS_LOGFILE)
         
+        # Step 1: Set and play the first video
+        if eye_choice == "d":
+            vc.delay_playback(misty, 0, "loop_bright.mp4")
+        else:
+            vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+
+        #Step 2: Misty speaks
         misty.speak(random.choice([
             f"Clearly {opt_list[idx]} is the best choice.",
             f"Great, you both agree – {opt_list[idx]} it is."
         ]))
+        # Step 3: Misty goes to silent state (dim video)
+        if eye_choice == "d":
+            vc.delay_playback(misty, 3.5, "loop_dim.mp4")
+        else:
+            vc.delay_playback(misty, 3.5, "bright_to_dim_smooth.mp4")
         
+
         speech_detector.reset_timers()
         speech_detector.left_recorder.start_recording()
         speech_detector.right_recorder.start_recording()
@@ -906,8 +1124,21 @@ def state_10_verdict():
     speech_detector.right_recorder.stop_recording()
     log_data.stop(RMS_LOGFILE)
     
+    # Step 1: Set and play the first video
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+
+    #Step 2: Misty speaks
     misty.speak("Sorry, my mistake. Let's keep discussing.")
     
+    #Step 3: Misty goes to silent state (dim video)
+    if eye_choice == "d":
+        vc.delay_playback(misty, 4, "loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, 4, "bright_to_dim_smooth.mp4")
+
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
@@ -922,8 +1153,21 @@ def state_11_repeat():
     speech_detector.right_recorder.stop_recording()
     log_data.stop(RMS_LOGFILE)
     
+    # Step 1: Set and play the first video
+    if eye_choice == "d":
+        vc.delay_playback(misty, 0, "loop_bright.mp4")
+    else:
+        vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
+
+    #Step 2: Misty speaks
     misty.speak("I'll repeat the question.")
     
+    #Step 3: Misty goes to silent state (dim video)
+    if eye_choice == "d":
+        vc.delay_playback(misty, 3, "loop_dim.mp4")
+    else:
+        vc.delay_playback(misty, 3, "bright_to_dim_smooth.mp4")
+
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
