@@ -4,7 +4,7 @@ from Misty_commands import Misty
 is_playing = False
 
 #DON'T FORGET: 
-# !!!!Always choose open_70.jpg from the web interface of Misty!!!
+# !!!!Always choose open_70.jpg from the web interface of Misty BEFORE starting the experiment!!!
 # Otherwise you can see for a brief moment the default eye image. 
 
 def delay_playback(misty, delay, video_name):
@@ -16,7 +16,7 @@ def delay_playback(misty, delay, video_name):
     # t_0= time.time()
     if delay < 0.5:
         delay = 0.5
-    time.sleep(delay- 0.5)
+    time.sleep(delay)
     misty.set_video_display_settings(
         layer="DefaultVideoLayer",
         deleted=True

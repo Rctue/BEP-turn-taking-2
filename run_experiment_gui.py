@@ -15,7 +15,7 @@ from experiment_gui import setup_gui
 import threading
 
 # Import your state-machine module.
-import Hardcoded_experiment_code_new as sm
+import new as sm
 
 # 1) Create and show the GUI window
 gui = setup_gui()
