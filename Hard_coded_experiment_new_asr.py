@@ -402,7 +402,7 @@ if ENABLE_FACE_TRACKING:
 def state_0_init():
     global emotional_condition, topic, gestures 
     global IDP1, IDP2, NameP1, NameP2
-    global eye_controller
+    global eye_choice
 
 
     print("Initialising …")
