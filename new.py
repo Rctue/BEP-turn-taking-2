@@ -62,13 +62,10 @@ import base64
 import datetime
 from datetime import datetime
 import speech_detector                     # uses AVData_new internally
-import AVData_new as AVData                # <- renamed module
-from new_videos import Video_player        #video display for the eye transitions
+import AVData_new as AVData                
+import video_changes_new as vc      #video display for the eye transitions
 
-from mistyPy.Robot import Robot
-from mistyPy.Events import Events
-
-from pathlib import Path          # NEW
+from pathlib import Path       
 LOG_DIR = None                    # gets its value in state_0_init()
 RESULTS_LOGFILE = None
 
@@ -114,6 +111,21 @@ def check_menu_keys():
 ##############################################################################
 robot_ip = "192.168.0.100"
 misty    = Misty(ip_address=robot_ip)
+
+# ─── DEBUG: shows every head movement in the terminal ──────────
+if simulate:                                  # only with FakeMisty
+    _orig_move_head = misty.move_head         
+
+    def _dbg_move_head(pitch, roll, yaw, speed=90):
+        side = "middle" if yaw == 0 else ("left" if yaw > 0 else "right")
+        print(f"[HEAD-DEBUG] pitch={pitch:>3}  roll={roll:>3}  "
+              f"yaw={yaw:>3}  => {side}")
+        return _orig_move_head(pitch, roll, yaw, speed)
+
+    misty.move_head = _dbg_move_head          # activating wrapper
+# -----------------------------------------------------------------
+
+
 last_speaker = None
 head_timer_start = None
 
@@ -123,6 +135,8 @@ log_data.init_robot(robot_ip)
 log_data.init_devices()
 
 from datetime import datetime as _dt
+from datetime import timedelta
+
 # RMS logfile (only during discussion)
 RMS_LOGFILE = f"rms_log_{_dt.now():%Y%m%d_%H%M%S}.csv"
 _start_time = None
@@ -139,7 +153,6 @@ with open(GAZE_LOGFILE, "w", newline="") as f:
 import speech_detector; speech_detector.set_thresholds(
         log_data.rec_left,  log_data.rec_right,
         log_data.thresh_left, log_data.thresh_right)
-import video_changes_new as vc
 
 head_position  = "middle"           # 'left' | 'right' | 'middle'
 face_direction = "middle"           #'left', 'right', or  middle' on basis of face
@@ -149,6 +162,23 @@ dialogstage    = -1                 # question index (-1 = not started)
 IDP1 = IDP2 = "";   NameP1 = NameP2 = ""
 topic = "";   emotional_condition = "";   gestures = "n"
 
+
+recent_move = False
+
+# For gaze change, so it is not on head_duration but at active_speaker ____________________________
+active_speaker = None
+active_speaker_start = None
+gaze_shift_done = False
+GazeShiftEnabled = True
+gaze_shift_target = None  # to which the shift went (left/right)
+gaze_shift_done = False
+gaze_shift_cooldown_until = None  # cooldown time to block the gaze shift
+gaze_shift_origin = None
+gaze_shift_active = False 
+
+
+
+
 # ──────────────────────────────────────────────────────────
 # BACK-CHANNEL FACTORS 
 # (chosen once in state 0)
@@ -157,6 +187,7 @@ BC_SAYINGS = ["uh-huh", "okay", "yeah"]     #could not do 'mmhmm', because the m
 # run-time schedule pointer (filled in state 0)
 BC_SCHEDULE: list[dict] = []
 BC_PTR: int = 0
+CURRENT_TRIAL: dict | None = None
 
 BC_LOGFILE = f"bc_log_{datetime.now():%Y%m%d_%H%M%S}.csv"
 with open(BC_LOGFILE, "w", newline="") as f:
@@ -231,6 +262,50 @@ def log_gaze_duration(position: str, duration: float):
             round(duration, 2)
         ])
 
+def log_gaze_shift(speaker: str, position: str, duration: float):
+    global GAZE_SHIFT_LOGFILE
+    if not GAZE_SHIFT_LOGFILE:
+        return
+    with open(GAZE_SHIFT_LOGFILE, "a", newline="") as f:
+        csv.writer(f).writerow([
+            datetime.now().isoformat(timespec="seconds"),
+            speaker,
+            position,
+            round(duration, 2)
+        ])
+        
+
+import threading   
+def arm_recent_move_flag():
+    """Zet recent_move op True en reset automatisch na 0.5 s."""
+    global recent_move
+    recent_move = True
+    threading.Timer(0.5, lambda: globals().__setitem__('recent_move', False)
+                   ).start()
+
+def reset_gaze(now):
+    global head_position, head_timer_start
+    global gaze_shift_active, gaze_shift_target, gaze_shift_origin
+    global gaze_shift_cooldown_until
+
+    misty.move_head(0, 0, 0)
+    arm_recent_move_flag()
+    log_gaze_duration(head_position,
+                      (now - head_timer_start).total_seconds())
+    head_position       = 'middle'
+    head_timer_start    = now
+    gaze_shift_active   = False
+    gaze_shift_target   = None
+    gaze_shift_origin   = None
+    gaze_shift_cooldown_until = now + timedelta(seconds=2)
+
+def yaw_for_head_pos() -> int:
+    """Geef +20, -20 of 0 ° yaw op basis van globale head_position."""
+    if head_position == 'left':
+        return 20         # Misty looks at the left  (positive yaw)
+    if head_position == 'right':
+        return -20        # Misty looks at the right (negative yaw)
+    return 0              # middle
 
 
 ##############################################################################
@@ -240,9 +315,9 @@ def face_tracking_thread():
     global face_direction, FACEPOSE_LOGFILE
     try:
         while True:
-            # wacht tot camera & model zijn geïnitialiseerd
+            
             try:
-                get_pitch_yaw(misty)          # één test-call
+                get_pitch_yaw(misty)         
             except Exception as e:
                 print("[WARN] face-tracking init mislukt:", e)
                 time.sleep(1.0)
@@ -295,7 +370,7 @@ if ENABLE_FACE_TRACKING:
 def state_0_init():
     global emotional_condition, topic, gestures 
     global IDP1, IDP2, NameP1, NameP2
-    global eye_choice
+    global eye_controller
 
 
     print("Initialising …")
@@ -304,7 +379,7 @@ def state_0_init():
     NameP2  = input("Name participant RIGHT: "); IDP2 = input("ID RIGHT : ")
     
         # ─── Create per-session log folder ─────────────────────────────────
-    global LOG_DIR, RMS_LOGFILE, GAZE_LOGFILE, BC_LOGFILE, FACEPOSE_LOGFILE, RESULTS_LOGFILE
+    global LOG_DIR, RMS_LOGFILE, GAZE_LOGFILE, BC_LOGFILE, FACEPOSE_LOGFILE, RESULTS_LOGFILE, GAZE_SHIFT_LOGFILE
     import datetime as dt
 
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -317,6 +392,10 @@ def state_0_init():
     )
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     print(f"[INFO] Log files → {LOG_DIR.resolve()}")   # visible in GUI
+    
+    GAZE_SHIFT_LOGFILE = LOG_DIR / f"gaze_shift_log_{timestamp}.csv"
+    with open(GAZE_SHIFT_LOGFILE, "w", newline="") as f:
+        csv.writer(f).writerow(["timestamp", "active_speaker", "head_position"])
 
     # point the three main log variables to that new folder
     RMS_LOGFILE  = LOG_DIR / f"rms_log_{timestamp}.csv"
@@ -339,6 +418,7 @@ def state_0_init():
             
             
     eye_choice = input("Eye condition(s smooth / d direct): ").lower()
+
     
     transition_style = Video_player.SMOOTH if eye_choice == "s" else Video_player.DIRECT
     eye_controller = Video_player(misty, transition_style=transition_style)
@@ -347,6 +427,8 @@ def state_0_init():
         "condition": emotional_condition, "topic": topic,
         "gestures": gestures, "IDP1": IDP1, "IDP2": IDP2
     })
+    
+    bc_choice = input("back-channel delay? (2/4 s): ").strip()
     
     FACEPOSE_LOGFILE = None
     FACEPOSE_LOGFILE = LOG_DIR / "log_facepose.txt"
@@ -378,7 +460,9 @@ def state_0_init():
     }
     
     #eye_controller.set_speaking_mode()
-    
+    speech_detector.left_recorder.stop_recording()
+    speech_detector.right_recorder.stop_recording()
+     
     # Step 1: 
     if eye_choice == "d":
         vc.delay_playback(misty, 0, "loop_bright.mp4")
@@ -398,11 +482,11 @@ def state_0_init():
 
     
     if topic == "h":
-        delay = 16
+        delay = 15.5
     if topic == "d":
-        delay = 13
+        delay = 12.4
     if topic == "t":
-        delay = 10
+        delay = 10.5
     
     if eye_choice == "d":
         vc.delay_playback(misty, delay, "loop_dim.mp4")
@@ -411,10 +495,11 @@ def state_0_init():
         vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
         print("Displaying bright_to_dim_smooth.mp4")
 
-
+    
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
+    
 
 #___________________________________________________________________________________
 # Counterbalancing factors (backchannel schedule generation)
@@ -432,18 +517,44 @@ def state_0_init():
 #____________________________________________________________________________________  
     
     # Creating balanced combinations
-    delays = [2]*6 + [4]*6
-    types  = ["none"]*4 + ["saying"]*4 + ["nod"]*4
-
-    # Shuffle separately
-    random.shuffle(delays)
-    random.shuffle(types)
-
+    if bc_choice == "2":
+        delays_to_use = [2, 2]
+    elif bc_choice == "4":
+        delays_to_use = [4, 4]
+    else:
+        delays_to_use = [2,4]
+    
     # Combine to list dicts
-    schedule = [{"delay": d, "type": t} for d, t in zip(delays, types)]
+    schedule = []
+    for delay in delays_to_use:                     # eerst alle 2-s trials, dan 4-s
+        for bc_type in ("none", "saying", "nod"):
+            # False = géén gaze-shift,  True = gaze-shift na 3 s
+            for gaze_flag in (False, True):
+                schedule.append({
+                    "delay": delay,         # 2 of 4 s
+                    "type":  bc_type,       # none | saying | nod
+                    "gaze":  gaze_flag      # False = “No gaze change”
+                })
 
     # Shuffle whole schedule again to mix
     random.shuffle(schedule)
+    
+    #___________________________________________________________________________________________________
+    print("\n[DEBUG] Back-channel / gaze schedule voor deze sessie:")
+    print("nr | delay | gaze | type")
+    for i, t in enumerate(schedule, 1):
+        print(f"{i:2d} |  {t['delay']}s   | {'ON ' if t['gaze'] else 'OFF'}  | {t['type']}")
+    print("------------------------------------------------------------------\n")
+    #___________________________________________________________________________________________________
+    
+    
+    #  Back-channel saves schema as CSV
+    with open(LOG_DIR / "bc_schedule.csv", "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["trial", "delay_s", "type", "gaze"])  # header
+        for i, t in enumerate(schedule, 1):
+            w.writerow([i, t["delay"], t["type"], int(t["gaze"])])
+# -------------------------------------------------------------
 
     globals()["BC_SCHEDULE"] = schedule
     globals()["BC_PTR"] = 0
@@ -454,7 +565,6 @@ def state_0_init():
 # 1 ─ Wait one second in neutral expression______________________________________________________________________________________________________________
 def state_1_wait():
     #eye_controller.set_listening_mode()
-    vc.delay_playback(misty, 0, "loop_dim.mp4")
     misty.move_head(-20, 0, 0, 90)
     time.sleep(1)
     speech_detector.reset_timers()
@@ -467,15 +577,26 @@ def state_2_track():
     global _start_time
     global head_timer_start
     
+    global active_speaker, active_speaker_start, gaze_shift_done, gaze_shift_target, gaze_shift_done, gaze_shift_cooldown_until, gaze_shift_origin, gaze_shift_active
+    global gaze_shift_target
+    global GazeShiftEnabled
+    
+    active_speaker = None
+    monologue_start = None
+
+    
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
     log_data.start()
 
-
+    if head_timer_start is None:
+        head_timer_start = datetime.now()
+        
     print("AUTOTRACK active — press M menu, Q next, or V verdict …")
-    
+    debug_counter = 0
     
     while True:
+        debug_counter += 1 
         override = check_menu_keys()
         if override is not None:
             return override
@@ -484,12 +605,43 @@ def state_2_track():
         if speaker not in ('l', 'r', 'b', 's'):
             print(f"[ERROR] Invalid speaker detected: {speaker}")
             speaker = 's'
+         
+        now = datetime.now() 
+        
+        # GAZE CHANGE CONDITION 
+        if speaker in ('l', 'r'):
+
+            if speaker != active_speaker:
+                active_speaker = speaker
+                active_speaker_start = now
+                gaze_shift_done = False
+            elif active_speaker_start:
+                monologue_duration = (now - active_speaker_start).total_seconds()
+                
+                can_shift = (
+                    GazeShiftEnabled and
+                    not gaze_shift_active and
+                    (gaze_shift_cooldown_until is None or now >= gaze_shift_cooldown_until)
+                )
+
+                if can_shift and monologue_duration >= 3.0:
+                    opposite = 'right' if speaker == 'l' else 'left'
+                    misty.move_head(0, 0, -20 if opposite == 'right' else 20)
+                    arm_recent_move_flag() 
+                    head_position       = opposite
+                    head_timer_start    = now
+                    gaze_shift_origin   = speaker       # <-- nieuw
+                    gaze_shift_target   = opposite
+                    gaze_shift_active   = True          # <-- nieuw
+                    print(f"[SHIFT] Gaze shifted to {opposite} after {monologue_duration:.2f}s.")
+                    log_gaze_shift(speaker, opposite, monologue_duration)
+
 
         silence_duration = speech_detector.get_silence_duration()
         speaking_duration = speech_detector.get_speaking_duration()
         
         # English debug output:
-        print(f"[DEBUG] Detected speaker: {speaker}, Silence duration: {silence_duration:.2f}s, Speaking duration: {speaking_duration:.2f}s")
+        #print(f"[DEBUG] Detected speaker: {speaker}, Silence duration: {silence_duration:.2f}s, Speaking duration: {speaking_duration:.2f}s")
 
         # Log RMS data correctly
         left_rms  = float(np.median(speech_detector.left_recorder.rms_data)) if speech_detector.left_recorder.rms_data else 0.0
@@ -511,6 +663,8 @@ def state_2_track():
         # Check explicitly for silence
         if silence_duration > 4.0:
             print("[AUTO] Silence detected (>4s), moving to motivate state.")
+            if gaze_shift_active:
+                reset_gaze(now)
             return 3
 
         new_pos = {
@@ -520,44 +674,88 @@ def state_2_track():
             's': 'middle'
         }[speaker]
 
-        if new_pos != head_position:
-            if head_timer_start:
-                duration = (now - head_timer_start).total_seconds()
-                log_gaze_duration(head_position, duration)
-            head_timer_start = datetime.now()
-            head_position = new_pos
-            print(f"[AUTO] New speaker detected ({new_pos}), turning head.")
-            if new_pos == "left":
-                misty.move_head(0, 0, 20)
-            elif new_pos == "right":
-                misty.move_head(0, 0, -20)
-            else:
-                misty.move_head(0, 0, 0)
+  
+        #  During the gaze shift Misty cannot turn its head
+        if gaze_shift_target is not None:
+            if debug_counter % 20 == 0:
+                print(f"[BLOCKED] Gaze shift actief naar {gaze_shift_target} – "
+              "no automatically head turns.")
+        else:
+            if new_pos != head_position:
+                if head_timer_start:
+                    duration = (now - head_timer_start).total_seconds()
+                    log_gaze_duration(head_position, duration)
+                head_timer_start = datetime.now()
+                head_position = new_pos
+                print(f"[AUTO] New speaker detected ({new_pos}), turning head.")
+                if new_pos == "left":
+                    misty.move_head(0, 0, 20)
+                elif new_pos == "right":
+                    misty.move_head(0, 0, -20)
+                else:
+                    misty.move_head(0, 0, 0)
+                    
+                print(f"[DEBUG] HEAD is now {head_position} (new_pos={new_pos})")
+         
             
         add_head_dir()
         
-        #backchanneling
+        # --- Backchanneling ---
         if head_timer_start:
             head_duration = (now - head_timer_start).total_seconds()
         else:
             head_duration = 0.0
 
-        bc_delay = BC_SCHEDULE[BC_PTR]["delay"] if BC_PTR < len(BC_SCHEDULE) else 2
-        if head_position in ('left', 'right') and head_duration >= bc_delay:
+        
+        current_trial = BC_SCHEDULE[BC_PTR]              
+        bc_delay =current_trial["delay"]
+        GazeShiftEnabled = current_trial.get("gaze", True)
+        
+        if debug_counter == 1:
+            print(
+                f"[TRIAL {BC_PTR+1}] delay={bc_delay}s  "
+                f"gaze={'ON' if GazeShiftEnabled else 'OFF'}  "
+                f"type={current_trial['type']}"
+            )
+            
+        
+        if (not gaze_shift_active) and (not recent_move) and head_position in ('left', 'right') and head_duration >= bc_delay:
             log_gaze_duration(head_position, head_duration)
             print(f"[AUTO] Head direction held for {head_duration:.2f}s → backchannel.")
+            globals()["CURRENT_TRIAL"] = current_trial
+            if gaze_shift_active:
+                reset_gaze(now)
             return 6
+        
+        # Check if gaze shift should end 
+        # --- gaze-shift active?  ---------------------------------------
+        if gaze_shift_active:
+
+            # 1. The same speaker is still talking ➜ keep watching
+            if speaker == gaze_shift_origin:
+                pass
+
+            # 2. Other speaker takes over ➜ reset to centre
+            elif speaker in ('l', 'r') and speaker != gaze_shift_origin:
+                reset_gaze(now)
+
+            # 3. Silence >2 s ➜ reset to middle
+            elif speaker == 's' and silence_duration >= 2.0:
+                reset_gaze(now)
+                
+            # 4. Monologue too long with no clear speaker → reset
+            elif silence_duration < 0.5 and speaker == 'b' and \
+                (now - active_speaker_start).total_seconds() > 6.0:
+                print("[SHIFT-END] No clear speaker >6 s → reset gaze.")
+                reset_gaze(now)
 
         time.sleep(0.2)
-
-
 
 
 
 # 3 ─ Motivate someone to start talking___________________________________________________
 def state_3_motivate():
     misty.move_head(-20, 0, 0, 90)
-
     #Step 1: Bright video starts playing
     if eye_choice == "s":
         vc.delay_playback(misty, 0, "dim_to_bright_smooth.mp4")
@@ -580,17 +778,21 @@ def state_3_motivate():
         vc.delay_playback(misty, 2, "bright_to_dim_smooth.mp4")
 
     speech_detector.reset_timers()
+    #eye_controller.set_listening_mode()
     return 2
 
 
 # 4 ─ Turn head to current speaker________________________________________________________
 def state_4_turn_head():
+    global new_pos 
     if head_position == "left":
         misty.move_head(-20, 0, -54, 90)
     elif head_position == "right":
         misty.move_head(-20, 0,  54, 90)
     else:
         misty.move_head(-20, 0,   0, 90)
+        
+    print(f"[DEBUG] HEAD is now {head_position} (new_pos={new_pos})")
     speech_detector.reset_timers()
     return 5
 
@@ -710,30 +912,39 @@ def state_5_keep_gaze():
 def state_6_backchannel():
     print("[BC] Entered state 6 (backchannel)")
     """Run the *next* trial from the within-subjects schedule."""
-    global BC_PTR
-    if BC_PTR >= len(BC_SCHEDULE):              # safety – recycle if needed
-        BC_PTR = 0
-    trial   = BC_SCHEDULE[BC_PTR];  BC_PTR += 1
-    delay   = trial["delay"]                   # 2 s or 4 s
-    bc_type = trial["type"]      # none | nod | saying
+    global BC_PTR, head_timer_start
+    global gaze_shift_active, gaze_shift_origin          # voor de guard
+    from datetime import datetime as dt
+
+    trial = globals().get("CURRENT_TRIAL")
+    if trial is None:                                    # fallback (zou zelden gebeuren)
+        trial = BC_SCHEDULE[BC_PTR]
+
+    delay   = trial["delay"]           # 2 of 4
+    bc_type = trial["type"]            # none | nod | saying
 
         
-    # 1) wait the required delay
-    time.sleep(delay)
-    
-    # 2) perform the back-channel
+    # ──────────────────────────────────────
+    # 1. Gaze-shift-guard: no BC if Misty is still
+    # looks away from the active speaker
+    # ──────────────────────────────────────
+    if gaze_shift_active and head_position != gaze_shift_target:
+        print("[BC] Gaze-shift actief → BC uitgesteld.")
+        return 2          # back to tracking
+
+
+    # ──────────────────────────────────────
+    #2. Gaze-shift-guard: no BC if Misty is still
+    # 
+    # ──────────────────────────────────────
     if bc_type == "none":
-        bc_out = ""
+        bc_out = "none"
 
     elif bc_type == "nod":
-        # smooth nod while keeping current yaw
-        pos = misty.get_head_position()
-        if isinstance(pos, dict):
-            pos = pos.get('result', pos)
-        current_yaw = pos.get('yaw', 0) or 0
-        misty.move_head(-30, 0, current_yaw, 90)   # quick down
-        time.sleep(0.4)
-        misty.move_head(-20, 0, current_yaw, 90)   # back to neutral
+        yaw = yaw_for_head_pos()               
+        misty.move_head(-30, 0, yaw, 90)       # short nod
+        time.sleep(0.35)
+        misty.move_head(-20, 0, yaw, 90)       # back to neutral pitch
         bc_out = "nod"
 
     elif bc_type == "saying":
@@ -755,21 +966,21 @@ def state_6_backchannel():
         
         speech_detector.reset_timers()
 
-        
-
-    else:                                          # should never happen
-        bc_out = ""
-        print("⚠ Unknown bc_type in schedule!")
+    else:
+        print("Onbekend bc_type in schedule:", bc_type)
+        bc_out = "none"
 
     # 3) obtain last cached pose → eye-contact flag
     pitch, yaw = (0, 0)
     if ENABLE_FACE_TRACKING:
         pitch, yaw = sys.modules["tracking_model"].LAST_POSE
-    eye_contact = abs(pitch) < 20 and abs(yaw) < 20
+    eye_contact = (-5 <= pitch <= 5) and ((-46 <= yaw <= -26) or (26 <= yaw <= 46))
 
     # 4) Determine how long Misty has been looking this way
     from datetime import datetime as dt
     gaze_duration = (dt.now() - head_timer_start).total_seconds() if head_timer_start else 0.0
+    
+    
 
     # 5) write log line
     log_backchannel(
@@ -779,7 +990,9 @@ def state_6_backchannel():
         direction=head_position,
         duration=gaze_duration
     )
-    speech_detector.reset_timers()
+    
+    BC_PTR = (BC_PTR + 1) % len(BC_SCHEDULE)
+    head_timer_start = dt.now()
     return 2                                    # back to active tracking
 
 
@@ -809,6 +1022,7 @@ def state_7_robot_talk():
         speech_detector.right_recorder.stop_recording()
         
         log_data.stop(RMS_LOGFILE)
+        
         # Step 1: Set and play the first video
         if eye_choice == "d":
             vc.delay_playback(misty, 0, "loop_bright.mp4")
@@ -818,6 +1032,8 @@ def state_7_robot_talk():
         #Step 2: Misty speaks
         #ask question
         misty.speak(listtostr(seq[dialogstage]))
+
+        print(dialogstage)
         
         # Step 3: Misty goes to silent state (dim video)
         #The duration of the speaking utterances is determined in the delay constant
@@ -874,10 +1090,9 @@ def state_7_robot_talk():
                 int((datetime.now() - _start_time).total_seconds() * 1000),
                  "", "", "",
                  "", "", 
-                f"question: {listtostr(seq[dialogstage])}" #chooses the question to ask
+                f"question: {listtostr(seq[dialogstage])}"
             ])
-        
-        
+        time.sleep(7.0)
         
         if dialogstage != 0:
             speech_detector.reset_timers()
@@ -910,9 +1125,9 @@ def state_7_robot_talk():
                     " and you will ", chosen_options[3],
                     ". Thanks for participating – please fill in both questionnaires."]]
     
-    
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
+    
     # Step 1: Set and play the first video
     if eye_choice == "d":
         vc.delay_playback(misty, 0, "loop_bright.mp4")
@@ -927,18 +1142,18 @@ def state_7_robot_talk():
     speech_detector.right_recorder.start_recording()
     
     if topic == "h":
-        delay = 15.
+        delay = 16.1
     elif topic == "d":
-        delay = 12.3
+        delay = 13.3
     else:
-        delay = 13.4
+        delay = 14.4
 
     if eye_choice == "d":
         vc.delay_playback(misty, delay, "loop_dim.mp4")
     else:
         vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
-    return 12
 
+    return 12
 
 
 # 8 ─ Simple turn-taking prompt___________________________________________________________________________________________________________
@@ -957,6 +1172,7 @@ def state_8_turn_taking():
         vc.delay_playback(misty, 2, "bright_to_dim_smooth.mp4")
     
     speech_detector.reset_timers()
+    
     return 2
 
 
@@ -995,9 +1211,8 @@ def state_9_info():
     #Step 2: Misty speaks
     misty.speak(listtostr(info_dict.get(opt_list[int(val) - 1], "")))
     speech_detector.reset_timers()
-
-    time.sleep(1)
-
+    #eye_controller.set_listening_mode()
+    
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
@@ -1043,9 +1258,8 @@ def state_9_info():
         vc.delay_playback(misty, delay, "loop_dim.mp4")
     else:
         vc.delay_playback(misty, delay, "bright_to_dim_smooth.mp4")
-    return 2
     
-
+    return 2
 
 
 # 10 ─ Operator picks verdict for current question________________________________________________________________________________________________
@@ -1066,6 +1280,7 @@ def state_10_verdict():
     speech_detector.left_recorder.stop_recording()
     speech_detector.right_recorder.stop_recording()
     log_data.stop(RMS_LOGFILE)
+    
     # Step 1: Set and play the first video
     if eye_choice == "d":
         vc.delay_playback(misty, 0, "loop_bright.mp4")
@@ -1078,9 +1293,9 @@ def state_10_verdict():
     
     #Step 3: Misty goes to silent state (dim video)
     if eye_choice == "d":
-        vc.delay_playback(misty, 4, "loop_dim.mp4")
+        vc.delay_playback(misty, 3, "loop_dim.mp4")
     else:
-        vc.delay_playback(misty, 4, "bright_to_dim_smooth.mp4")
+        vc.delay_playback(misty, 3, "bright_to_dim_smooth.mp4")
 
     
     # Recording starts again after Misty asked question
@@ -1111,7 +1326,7 @@ def state_10_verdict():
         else:
             vc.delay_playback(misty, 3.5, "bright_to_dim_smooth.mp4")
         
-
+        
         speech_detector.reset_timers()
         speech_detector.left_recorder.start_recording()
         speech_detector.right_recorder.start_recording()
@@ -1135,10 +1350,11 @@ def state_10_verdict():
     
     #Step 3: Misty goes to silent state (dim video)
     if eye_choice == "d":
-        vc.delay_playback(misty, 4, "loop_dim.mp4")
+        vc.delay_playback(misty, 2.5, "loop_dim.mp4")
     else:
-        vc.delay_playback(misty, 4, "bright_to_dim_smooth.mp4")
+        vc.delay_playback(misty, 2.5, "bright_to_dim_smooth.mp4")
 
+    
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
@@ -1168,6 +1384,7 @@ def state_11_repeat():
     else:
         vc.delay_playback(misty, 3, "bright_to_dim_smooth.mp4")
 
+    
     speech_detector.reset_timers()
     speech_detector.left_recorder.start_recording()
     speech_detector.right_recorder.start_recording()
@@ -1281,7 +1498,6 @@ def main():
         state = handler()
 
 
+
 if __name__ == "__main__":
     main()
-
-

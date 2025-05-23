@@ -7,11 +7,15 @@ Launch the Misty state-machine with the custom GUI.
 • The state-machine runs in a background thread so the window stays responsive.
 """
 
+#DON'T FORGET: 
+# !!!!Always choose open_70.jpg from the web interface of Misty BEFORE starting the experiment!!!
+# Otherwise you can see for a brief moment the default eye image. 
+
 from experiment_gui import setup_gui
 import threading
 
 # Import your state-machine module.
-import Hardcoded_experiment_code_new as sm
+import new as sm
 
 # 1) Create and show the GUI window
 gui = setup_gui()
