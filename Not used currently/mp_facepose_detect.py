@@ -131,7 +131,7 @@ def main():
         h, w, _ = image.shape
         face_coordination_in_image = []
     
-        if results.multi_face_landmarks:
+        if detection_result.multi_face_landmarks:
             for face_landmarks in results.multi_face_landmarks:
                 for idx, lm in enumerate(face_landmarks.landmark):
                     if idx in [1, 9, 57, 130, 287, 359]:
