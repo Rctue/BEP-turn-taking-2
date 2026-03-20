@@ -1,11 +1,11 @@
 import os
-os.environ["IMAGEIO_FFMPEG_EXE"] = "/usr/bin/ffmpeg" # for linux/mac os
-
+os.environ["IMAGEIO_FFMPEG_EXE"] = "~/Downloads/ffmpeg" #"/usr/bin/ffmpeg" # for linux/mac os
 #pip install fer
 from fer import FER # use pip install fer
 import cv2
 
 emotion_detector = FER(mtcnn=True)
+font = cv2.FONT_HERSHEY_SIMPLEX
 
 def detect_emotions(cv_image, show_image = False):
     analysis = emotion_detector.detect_emotions(cv_image)
@@ -26,7 +26,6 @@ def detect_emotions(cv_image, show_image = False):
         dominant_emotion = k[v.index(emotion_score)]
         
         if show_image:
-            font = cv2.FONT_HERSHEY_SIMPLEX
             cv2.putText(cv_image,dominant_emotion+' '+str(emotion_score),(top_left[0],top_left[1]-10), font, 0.4,(0,0,255),1,cv2.LINE_AA) #scale is 0.4, red color, 1 point thick
         
         face_data.append(face_center + fb + [ dominant_emotion, emotion_score ])
