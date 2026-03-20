@@ -128,8 +128,12 @@ def main():
                 [391, 425, 108]
                 ], dtype=np.float64)
 
-        h, w, _ = image.shape
+        h, w, _ = cv_image.shape
         face_coordination_in_image = []
+        
+        mp_face_mesh = mp.solutions.face_mesh
+        face_mesh = mp_face_mesh.FaceMesh(min_detection_confidence = 0.5, min_tracking_confidence = 0.5)
+        results = face_mesh.process(cv_image)
     
         if detection_result.multi_face_landmarks:
             for face_landmarks in results.multi_face_landmarks:
@@ -162,14 +166,15 @@ def main():
                 for i, info in enumerate(zip(('pitch', 'yaw', 'roll'), result)):
                     k, v = info
                     text = f'{k}: {int(v)}'
-                    cv2.putText(image, text, (20, i*30 + 20),
+                    cv2.putText(cv_image, text, (20, i*30 + 20),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 0, 200), 2)
     
     
-        cv2.imshow('Head Pose Angles', image)
+        #cv2.imshow('Head Pose Angles', image)
             # STEP 5: Process the detection result. In this case, visualize it.
-            annotated_image = draw_landmarks_on_image(image.numpy_view(), detection_result)
+            annotated_image = draw_landmarks_on_image(cv_image, detection_result)
             cv2.imshow(im_name, cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+           # cv2.imshow(im_name, cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR))
             key = cv2.waitKey(100)
             if key%256 == 27:
                 # ESC pressed

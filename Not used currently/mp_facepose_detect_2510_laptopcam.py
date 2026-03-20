@@ -7,11 +7,11 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import cv2
 import math
-from Misty_commands import Misty
+#from Misty_commands import Misty
 import base64
 import time
 import json
-import Experiment_code
+#import Experiment_code
 
 # STEP 1B: viusalisation tools
 # #@markdown We implemented some functions to visualize the face landmark detection results. <br/> Run the following cell to activate the functions.
@@ -22,7 +22,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-misty = Misty(ip_address="192.168.0.100")
+#misty = Misty(ip_address="192.168.0.100")
 
 def draw_landmarks_on_image(rgb_image, detection_result):
   face_landmarks_list = detection_result.face_landmarks
@@ -133,7 +133,7 @@ def main():
     detector = FaceLandmarker()        
     # STEP 3: Load the input image.
      
-    camera = cv2.VideoCapture(0) 
+    camera = cv2.VideoCapture(1) 
     im_name = "Head Pose Estimation Including Pitch And Yaw"
     done = False
     while not done:
@@ -192,40 +192,40 @@ def main():
 
                 time_passed = int(time.time() - start_time)
 
-                # Misty looks to the left participants --> 1 (participant 1)
-                # Misty looks to the right participant --> 2 (participant 2)
-                # Misty looks at neither --> 0
-                if Experiment_code.head_moved_left == True:
-                    misty_gaze_direction = 1
-                elif Experiment_code.head_moved_right == True:
-                    misty_gaze_direction = 2
-                else:
-                    misty_gaze_direction = 0
+                # # Misty looks to the left participants --> 1 (participant 1)
+                # # Misty looks to the right participant --> 2 (participant 2)
+                # # Misty looks at neither --> 0
+                # if Experiment_code.head_moved_left == True:
+                #     misty_gaze_direction = 1
+                # elif Experiment_code.head_moved_right == True:
+                #     misty_gaze_direction = 2
+                # else:
+                #     misty_gaze_direction = 0
 
-                #check if participant looks at Misty's eyes:
-                if abs(int(result[0])) >= 7 and abs(int(result[1])):
-                    participant_looks = True
-                else:
-                    participant_looks = False 
+                # #check if participant looks at Misty's eyes:
+                # if abs(int(result[0])) >= 7 and abs(int(result[1])):
+                #     participant_looks = True
+                # else:
+                #     participant_looks = False 
 
-                #check if participant and misty look at eachother simultaneously: (left--> 1, right--> 2 , no eye contact made--> 0)
-                if misty_gaze_direction == 1 and participant_looks == True:
-                    eye_contact = 1
-                elif misty_gaze_direction == 2 and participant_looks == True:
-                    eye_contact = 2 
-                else:
-                    eye_contact = 0 
+                # #check if participant and misty look at eachother simultaneously: (left--> 1, right--> 2 , no eye contact made--> 0)
+                # if misty_gaze_direction == 1 and participant_looks == True:
+                #     eye_contact = 1
+                # elif misty_gaze_direction == 2 and participant_looks == True:
+                #     eye_contact = 2 
+                # else:
+                #     eye_contact = 0 
                            
-                eyecontact_data = {
-                    "time": time_passed,
-                    "gaze_direction": eye_contact
-                    }
-                # will also add time since having started the code (in seconds)
-                # Append the dictionary to the list
-                headposition_data.append(eyecontact_data)
+                # eyecontact_data = {
+                #     "time": time_passed,
+                #     "gaze_direction": eye_contact
+                #     }
+                # # will also add time since having started the code (in seconds)
+                # # Append the dictionary to the list
+                # headposition_data.append(eyecontact_data)
 
-                with open("headposition_data.json", "w") as f:
-                    json.dump(headposition_data, f)
+                # with open("headposition_data.json", "w") as f:
+                #     json.dump(headposition_data, f)
 
                 
                 #head_position = misty.get_head_position()
@@ -253,6 +253,6 @@ def main():
     # How should I ensure that if I have these Pitch and Yaw numbers that these will be given to the main file Experiment code?
     
 if __name__ == "__main__":
-    headposition_data = []
+    # headposition_data = []
     start_time = time.time()
     main()
