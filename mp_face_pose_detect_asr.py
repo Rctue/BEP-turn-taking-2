@@ -1,0 +1,457 @@
+# Explanation:
+# Pitch = up/down movement of the head (positive = up, negative = down)
+# Yaw   = left/right rotation of the head (positive = right, negative = left)
+# This code assumes a person is making eye contact with the robot if:
+# → pitch is between -20° and +20°
+# → and yaw is between -20° and +20°
+# These values can be adjusted.
+
+# Updated version with automatic logging on eye contact and ctrl+c as stop key
+
+
+import os
+os.environ['MEDIAPIPE_DISABLE_LOGGING'] = '1'
+
+# suppress native (C++) stderr logging
+import sys
+from contextlib import contextmanager
+
+@contextmanager
+def suppress_stderr():
+    with open(os.devnull, 'w') as devnull:
+        old_stderr = os.dup(2)  # duplicate stderr
+        os.dup2(devnull.fileno(), 2)  # redirect stderr to null
+        try:
+            yield
+        finally:
+            os.dup2(old_stderr, 2)  # restore stderr
+
+with suppress_stderr():
+    import absl.logging
+    absl.logging.set_verbosity(absl.logging.ERROR)
+    absl.logging.set_stderrthreshold('fatal')
+    
+    import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
+    
+from pathlib import Path
+SCRIPT_DIR = Path(__file__).parent
+MODEL_PATH = SCRIPT_DIR / "face_landmarker_v2_with_blendshapes.task"
+log_file_path: str | Path = SCRIPT_DIR / f"log_facepose_all.txt"
+
+import time
+last_print_time = 0
+pitch_thresh = 8
+yaw_thresh = 8
+# andere imports hierna
+import cv2
+import math
+from Misty_commands import Misty
+import base64
+from datetime import datetime
+import numpy as np
+from mediapipe import solutions
+from mediapipe.framework.formats import landmark_pb2
+
+LAST_POSE = None
+LAST_POSE_TS = None
+SHOW_WINDOW = True
+STOP_TRACKING = False
+# Create unique log file name
+
+def run_continuous_tracking(misty, pitch_thresh=20, yaw_thresh=20, show_window=True):
+    global LAST_POSE, LAST_POSE_TS, STOP_TRACKING
+
+    detector = FaceLandmarker()
+    im_name = "Head Pose Estimation Including Pitch And Yaw"
+
+    while not STOP_TRACKING:
+        return_value, cv_image = getMistyImage(misty)
+        if not return_value:
+            time.sleep(0.05)
+            continue
+
+        with suppress_stderr():
+            detection_result, image = DetectHeadPose(cv_image, detector)
+
+        face_coordination_in_real_world = np.array([
+            [285, 528, 200], [285, 371, 152], [197, 574, 128],
+            [173, 425, 108], [360, 574, 128], [391, 425, 108]
+        ], dtype=np.float64)
+
+        h, w = 800, 600
+        face_coordination_in_image = []
+
+        mp_face_mesh = mp.solutions.face_mesh
+        face_mesh = mp_face_mesh.FaceMesh(
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+
+        with suppress_stderr():
+            results = face_mesh.process(cv_image)
+
+        # Clear stale pose when no face is detected in this frame
+        if not results.multi_face_landmarks:
+            LAST_POSE = None
+            LAST_POSE_TS = None
+
+        eye_contact = False
+        pitch = None
+        yaw = None
+        roll = None
+
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                face_coordination_in_image = []
+
+                for idx, lm in enumerate(face_landmarks.landmark):
+                    if idx in [1, 9, 57, 130, 287, 359]:
+                        x, y = int(lm.x * w), int(lm.y * h)
+                        face_coordination_in_image.append([x, y])
+
+                if len(face_coordination_in_image) != 6:
+                    continue
+
+                face_coordination_in_image = np.array(face_coordination_in_image, dtype=np.float64)
+
+                focal_length = 1 * w
+                cam_matrix = np.array([
+                    [focal_length, 0, w / 2],
+                    [0, focal_length, h / 2],
+                    [0, 0, 1]
+                ], dtype=np.float64)
+
+                dist_matrix = np.zeros((4, 1), dtype=np.float64)
+
+                success, rotation_vec, transition_vec = cv2.solvePnP(
+                    face_coordination_in_real_world,
+                    face_coordination_in_image,
+                    cam_matrix,
+                    dist_matrix
+                )
+
+                if not success:
+                    LAST_POSE = None
+                    LAST_POSE_TS = None
+                    continue
+
+                rotation_matrix, _ = cv2.Rodrigues(rotation_vec)
+                pitch, yaw, roll = rotation_matrix_to_angles(rotation_matrix)
+
+                LAST_POSE = (pitch, yaw)
+                LAST_POSE_TS = time.time()
+
+                eye_contact = (
+                    abs(pitch) <= pitch_thresh and
+                    abs(yaw) <= yaw_thresh
+                )
+
+                log_facepose(pitch, yaw, eye_contact)
+
+                if show_window:
+                    for i, (k, v) in enumerate(zip(("pitch", "yaw", "roll"), (pitch, yaw, roll))):
+                        text = f"{k}: {int(v)}"
+                        cv2.putText(
+                            cv_image,
+                            text,
+                            (20, i * 30 + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (200, 0, 200),
+                            2
+                        )
+
+                    status_text = "LOOKING AT ROBOT" if eye_contact else "NOT LOOKING"
+                    cv2.putText(
+                        cv_image,
+                        status_text,
+                        (20, 130),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0) if eye_contact else (0, 0, 255),
+                        2
+                    )
+
+                break
+
+        annotated_image = draw_landmarks_on_image(cv_image, detection_result)
+
+        if show_window:
+            cv2.imshow(im_name, cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                STOP_TRACKING = True
+                break
+
+        time.sleep(0.05)
+
+    if show_window:
+        cv2.destroyWindow(im_name)
+        
+def set_all_log_path(folder: str | os.PathLike):
+    """
+    Laat de uitgebreide face-pose-log in <folder>/log_facepose_all.txt schrijven
+    en zet meteen de header.  Aanroepen vanuit state_0_init().
+    """
+    global log_file_path
+    log_file_path = Path(folder) / "log_facepose_all.txt"
+
+    with open(log_file_path, "w", encoding="utf-8") as f:
+        f.write("FULL LOG OF HEAD POSE (every frame)\n")
+        f.write("timestamp\tpitch_deg\tyaw_deg\tdirection\teye_contact\n")
+        f.write("-" * 60 + "\n")
+
+# Logging function
+def log_facepose(pitch, yaw, eye_contact):
+    direction = ("left" if yaw < -20 else
+                 "right" if yaw > 20 else
+                 "middle")
+    ct = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    contact_str = "YES" if eye_contact else "NO"
+    with open(log_file_path, "a", encoding="utf-8") as f:
+        f.write(f"{ct}\t{pitch:.2f}\t{yaw:.2f}\t{direction}\t{contact_str}\n")
+
+
+def draw_landmarks_on_image(rgb_image, detection_result):
+    face_landmarks_list = detection_result.face_landmarks
+    annotated_image = np.copy(rgb_image)
+    for face_landmarks in face_landmarks_list:
+        face_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+        face_landmarks_proto.landmark.extend([
+            landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z)
+            for landmark in face_landmarks
+        ])
+        solutions.drawing_utils.draw_landmarks(
+            image=annotated_image,
+            landmark_list=face_landmarks_proto,
+            connections=mp.solutions.face_mesh.FACEMESH_TESSELATION,
+            landmark_drawing_spec=None,
+            connection_drawing_spec=mp.solutions.drawing_styles.get_default_face_mesh_tesselation_style())
+        solutions.drawing_utils.draw_landmarks(
+            image=annotated_image,
+            landmark_list=face_landmarks_proto,
+            connections=mp.solutions.face_mesh.FACEMESH_CONTOURS,
+            landmark_drawing_spec=None,
+            connection_drawing_spec=mp.solutions.drawing_styles.get_default_face_mesh_contours_style())
+        solutions.drawing_utils.draw_landmarks(
+            image=annotated_image,
+            landmark_list=face_landmarks_proto,
+            connections=mp.solutions.face_mesh.FACEMESH_IRISES,
+            landmark_drawing_spec=None,
+            connection_drawing_spec=mp.solutions.drawing_styles.get_default_face_mesh_iris_connections_style())
+    return annotated_image
+
+def FaceLandmarker():
+    base_options = python.BaseOptions(model_asset_path=str(MODEL_PATH))
+    options = vision.FaceLandmarkerOptions(
+        base_options=base_options,
+        output_face_blendshapes=True,
+        output_facial_transformation_matrixes=True,
+        num_faces=1)
+    return vision.FaceLandmarker.create_from_options(options)
+
+def getMistyImage(misty):
+    result = misty.take_picture(base64=True, fileName="TempImage01", width=800, height=600,
+                                displayOnScreen=False, overwriteExisting=True)
+    if result.json()['status'] == "Success":
+        result = misty.get_image(fileName="TempImage01.jpg", base64=True)
+        image = result.json()['result']['base64']
+        decoded_data = base64.b64decode(image)
+        np_data = np.frombuffer(decoded_data, np.uint8)  # fixed from deprecated fromstring
+        img = cv2.imdecode(np_data, cv2.IMREAD_UNCHANGED)
+        return True, img
+    else:
+        return False, None
+
+def get_pitch_yaw_once(misty, detector=None):
+    if detector is None:
+        detector = FaceLandmarker()
+
+    return_value, cv_image = getMistyImage(misty)
+    if not return_value:
+        return None, None
+
+    with suppress_stderr():
+        detection_result, image = DetectHeadPose(cv_image, detector)
+
+    face_coordination_in_real_world = np.array([
+        [285, 528, 200], [285, 371, 152], [197, 574, 128],
+        [173, 425, 108], [360, 574, 128], [391, 425, 108]
+    ], dtype=np.float64)
+
+    h, w = 800, 600
+    face_coordination_in_image = []
+
+    mp_face_mesh = mp.solutions.face_mesh
+    face_mesh = mp_face_mesh.FaceMesh(
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+
+    with suppress_stderr():
+        results = face_mesh.process(cv_image)
+
+    if not results.multi_face_landmarks:
+        return None, None
+
+    for face_landmarks in results.multi_face_landmarks:
+        face_coordination_in_image = []
+
+        for idx, lm in enumerate(face_landmarks.landmark):
+            if idx in [1, 9, 57, 130, 287, 359]:
+                x, y = int(lm.x * w), int(lm.y * h)
+                face_coordination_in_image.append([x, y])
+
+        if len(face_coordination_in_image) != 6:
+            continue
+
+        face_coordination_in_image = np.array(face_coordination_in_image, dtype=np.float64)
+
+        focal_length = 1 * w
+        cam_matrix = np.array([
+            [focal_length, 0, w / 2],
+            [0, focal_length, h / 2],
+            [0, 0, 1]
+        ], dtype=np.float64)
+
+        dist_matrix = np.zeros((4, 1), dtype=np.float64)
+
+        success, rotation_vec, transition_vec = cv2.solvePnP(
+            face_coordination_in_real_world,
+            face_coordination_in_image,
+            cam_matrix,
+            dist_matrix
+        )
+
+        if not success:
+            continue
+
+        rotation_matrix, _ = cv2.Rodrigues(rotation_vec)
+        pitch, yaw, roll = rotation_matrix_to_angles(rotation_matrix)
+
+        return pitch, yaw
+
+    return None, None
+
+def DetectHeadPose(cv_image, detector):
+    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv_image)
+    detection_result = detector.detect(image)
+    return detection_result, image
+
+def rotation_matrix_to_angles(rotation_matrix):
+    x = math.atan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
+    y = math.atan2(-rotation_matrix[2, 0], math.sqrt(rotation_matrix[0, 0]** 2 + rotation_matrix[1, 0]** 2))
+    z = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+    return np.array([x, y, z]) * 180. / math.pi
+
+def get_pitch_yaw(misty):
+    global last_print_time
+
+    detector = FaceLandmarker()
+    im_name = "Head Pose Estimation Including Pitch And Yaw"
+
+    while True:
+        return_value, cv_image = getMistyImage(misty)
+        if not return_value:
+            continue
+
+        with suppress_stderr():
+            detection_result, image = DetectHeadPose(cv_image, detector)
+
+        face_coordination_in_real_world = np.array([
+            [285, 528, 200], [285, 371, 152], [197, 574, 128],
+            [173, 425, 108], [360, 574, 128], [391, 425, 108]
+        ], dtype=np.float64)
+
+        h, w = 800, 600
+        face_coordination_in_image = []
+
+        mp_face_mesh = mp.solutions.face_mesh
+        face_mesh = mp_face_mesh.FaceMesh(
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+
+        with suppress_stderr():
+            results = face_mesh.process(cv_image)
+
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                face_coordination_in_image = []
+
+                for idx, lm in enumerate(face_landmarks.landmark):
+                    if idx in [1, 9, 57, 130, 287, 359]:
+                        x, y = int(lm.x * w), int(lm.y * h)
+                        face_coordination_in_image.append([x, y])
+
+                if len(face_coordination_in_image) != 6:
+                    continue
+
+                face_coordination_in_image = np.array(face_coordination_in_image, dtype=np.float64)
+
+                focal_length = 1 * w
+                cam_matrix = np.array([
+                    [focal_length, 0, w / 2],
+                    [0, focal_length, h / 2],
+                    [0, 0, 1]
+                ], dtype=np.float64)
+
+                dist_matrix = np.zeros((4, 1), dtype=np.float64)
+
+                success, rotation_vec, transition_vec = cv2.solvePnP(
+                    face_coordination_in_real_world,
+                    face_coordination_in_image,
+                    cam_matrix,
+                    dist_matrix
+                )
+
+                if not success:
+                    continue
+
+                rotation_matrix, _ = cv2.Rodrigues(rotation_vec)
+                pitch, yaw, roll = rotation_matrix_to_angles(rotation_matrix)
+
+                eye_contact = (
+                    abs(pitch) <= pitch_thresh and
+                    abs(yaw) <= yaw_thresh
+                )
+
+                now = time.time()
+                if now - last_print_time > 0.3:
+                    print(
+                        f"[POSE] pitch={pitch:.2f} | yaw={yaw:.2f} | roll={roll:.2f} | eye_contact={eye_contact}",
+                        flush=True
+                    )
+                    last_print_time = now
+
+                log_facepose(pitch, yaw, eye_contact)
+
+                for i, (k, v) in enumerate(zip(("pitch", "yaw", "roll"), (pitch, yaw, roll))):
+                    text = f"{k}: {int(v)}"
+                    cv2.putText(
+                        cv_image,
+                        text,
+                        (20, i * 30 + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (200, 0, 200),
+                        2
+                    )
+
+        annotated_image = draw_landmarks_on_image(cv_image, detection_result)
+        cv2.imshow(im_name, cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q"):
+            cv2.destroyWindow(im_name)
+            return None, None
+
+if __name__ == "__main__":
+    misty = Misty(ip_address="192.168.0.100")
+    #print("Main was started")
+    try:
+        get_pitch_yaw()
+    except Exception as e:
+        print(f"An error occurred: {e}")
