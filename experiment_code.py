@@ -1519,7 +1519,7 @@ def state_4_keep_looking_at_speaker():
         if len(eye_contact_buffer) > 10:
             eye_contact_buffer.pop(0)
 
-        looks_at_robot = sum(eye_contact_buffer) >= 4
+        looks_at_robot = sum(eye_contact_buffer) >= 5
 
         # Logging
         if speaker == 'b':
