@@ -285,7 +285,7 @@ overlap_logged = False
 
 HUMAN_GAZE_YAW_MIN = 30
 HUMAN_GAZE_YAW_MAX = 60
-HUMAN_GAZE_PITCH_THRESH = 30
+HUMAN_GAZE_PITCH_THRESH = 20
 
 current_human_turn_speaker = None
 current_human_turn_start_time = None
